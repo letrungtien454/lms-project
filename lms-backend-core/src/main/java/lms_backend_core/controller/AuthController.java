@@ -1,6 +1,5 @@
 package lms_backend_core.controller;
 
-import jakarta.validation.Valid;
 import lms_backend_core.dto.AuthResponse;
 import lms_backend_core.dto.LoginRequest;
 import lms_backend_core.dto.RegisterRequest;
@@ -8,6 +7,9 @@ import lms_backend_core.service.AuthService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import jakarta.validation.Valid;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -17,12 +19,15 @@ public class AuthController {
     private final AuthService authService;
 
     @PostMapping("/register")
-    public ResponseEntity<String> register(@Valid @RequestBody RegisterRequest request) {
-        return ResponseEntity.ok(authService.register(request));
+    public ResponseEntity<?> register(@Valid @RequestBody RegisterRequest request) {
+        String message = authService.register(request);
+        // Trả về JSON chuẩn để Frontend đọc không bị lỗi JSON parse
+        return ResponseEntity.ok(Map.of("message", message));
     }
 
     @PostMapping("/login")
-    public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request) {
-        return ResponseEntity.ok(authService.login(request));
+    public ResponseEntity<?> login(@Valid @RequestBody LoginRequest request) {
+        AuthResponse response = authService.login(request);
+        return ResponseEntity.ok(response);
     }
 }
