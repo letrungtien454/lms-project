@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation' // Để chuyển hướng trang
 import {
   ArrowRight,
@@ -12,24 +12,148 @@ import {
   Mail,
   Sparkles,
   User,
-  Users,
 } from 'lucide-react'
+
+type GoogleCredentialResponse = {
+  credential: string
+}
+
+declare global {
+  interface Window {
+    google?: {
+      accounts: {
+        id: {
+          initialize: (options: {
+            client_id: string
+            callback: (response: GoogleCredentialResponse) => void
+          }) => void
+          renderButton: (
+            element: HTMLElement,
+            options: {
+              theme: 'outline'
+              size: 'large'
+              type: 'standard'
+              text: 'signin_with' | 'signup_with'
+              shape: 'pill'
+              width: number
+            },
+          ) => void
+        }
+      }
+    }
+  }
+}
 
 export default function Page() {
   const router = useRouter()
   const [mode, setMode] = useState<'signin' | 'signup'>('signin')
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
+  const googleSignInButtonRef = useRef<HTMLDivElement>(null)
+  const googleSignUpButtonRef = useRef<HTMLDivElement>(null)
+  const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID
 
   // 1. Quản lý State cho dữ liệu Form
   const [formData, setFormData] = useState({
-    username: '',
     fullName: '',
     email: '',
     password: ''
   })
 
   const isSignUp = mode === 'signup'
+
+  const getPostLoginPath = () => {
+    const returnTo = new URLSearchParams(window.location.search).get('returnUrl')
+    if (!returnTo || !returnTo.startsWith('/') || returnTo.startsWith('//')) return '/dashboard'
+
+    const destination = new URL(returnTo, window.location.origin)
+    return destination.origin === window.location.origin
+      ? `${destination.pathname}${destination.search}${destination.hash}`
+      : '/dashboard'
+  }
+
+  useEffect(() => {
+    if (!googleClientId) return
+
+    let cancelled = false
+    const handleCredential = async (credential: string) => {
+      setLoading(true)
+      try {
+        const response = await fetch('http://localhost:8080/api/auth/google', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ credential }),
+        })
+
+        if (!response.ok) {
+          const errorText = await response.text()
+          alert(`Đăng nhập Google thất bại: ${errorText || 'Không thể xác thực tài khoản.'}`)
+          return
+        }
+
+        const data: { token?: string; accessToken?: string; fullName?: string; email?: string } =
+          await response.json()
+        const token = data.token || data.accessToken
+        if (!token) {
+          alert('Đăng nhập Google thất bại: Không nhận được Token từ Server!')
+          return
+        }
+
+        localStorage.setItem('accessToken', token)
+        alert(`Đăng nhập thành công! Xin chào ${data.fullName || data.email || ''}`)
+        router.push(getPostLoginPath())
+      } catch (error) {
+        console.error('Lỗi kết nối API Google:', error)
+        alert('Không thể kết nối tới Server Spring Boot! Vui lòng kiểm tra lại Backend Java.')
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    const renderGoogleButton = () => {
+      const signInButton = googleSignInButtonRef.current
+      const signUpButton = googleSignUpButtonRef.current
+      const googleIdentity = window.google
+      if (cancelled || !googleIdentity || !signInButton || !signUpButton) return
+
+      googleIdentity.accounts.id.initialize({
+        client_id: googleClientId,
+        callback: ({ credential }) => void handleCredential(credential),
+      })
+      const buttons = [
+        { element: signInButton, text: 'signin_with' as const },
+        { element: signUpButton, text: 'signup_with' as const },
+      ]
+      buttons.forEach(({ element, text }) => {
+        element.innerHTML = ''
+        googleIdentity.accounts.id.renderButton(element, {
+          theme: 'outline',
+          size: 'large',
+          type: 'standard',
+          text,
+          shape: 'pill',
+          width: Math.min(element.clientWidth, 400),
+        })
+      })
+    }
+
+    let script = document.querySelector<HTMLScriptElement>('#google-identity-services')
+    if (!script) {
+      script = document.createElement('script')
+      script.id = 'google-identity-services'
+      script.src = 'https://accounts.google.com/gsi/client'
+      script.async = true
+      script.defer = true
+      document.head.appendChild(script)
+    }
+    script.addEventListener('load', renderGoogleButton)
+    renderGoogleButton()
+
+    return () => {
+      cancelled = true
+      script?.removeEventListener('load', renderGoogleButton)
+    }
+  }, [googleClientId, router])
 
   // 2. Cập nhật dữ liệu khi người dùng gõ vào ô Input
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -50,13 +174,12 @@ export default function Page() {
 
     const payload = isSignUp 
       ? {
-          username: formData.username,
           fullName: formData.fullName,
           email: formData.email,
           password: formData.password
         }
       : {
-          username: formData.username,
+          email: formData.email,
           password: formData.password
         }
 
@@ -83,8 +206,8 @@ export default function Page() {
           
           if (token) {
             localStorage.setItem('accessToken', token)
-            alert(`Đăng nhập thành công! Xin chào ${data.fullName || data.username || ''}`)
-            router.push('/dashboard') // Chuyển hướng sang trang Dashboard
+            alert(`Đăng nhập thành công! Xin chào ${data.fullName || data.email || ''}`)
+            router.push(getPostLoginPath())
           } else {
             alert('Đăng nhập thất bại: Không nhận được Token từ Server!')
           }
@@ -132,7 +255,7 @@ export default function Page() {
 
             <div className="mt-10 flex items-center gap-4">
               <div className="flex -space-x-2">
-                {['AM', 'JK', 'PS', 'RL'].map((initials, index) => (
+                {['AN', 'BH', 'CH', 'DU'].map((initials, index) => (
                   <div
                     key={initials}
                     className={`flex size-9 items-center justify-center rounded-full border-2 border-[#172554] text-[10px] font-bold ${
@@ -144,7 +267,7 @@ export default function Page() {
                 ))}
               </div>
               <p className="text-xs leading-5 text-blue-100/70">
-                Join <span className="font-semibold text-white">24,000+</span> curious learners
+                Cùng <span className="font-semibold text-white">24.000+</span> học viên khám phá tri thức
               </p>
             </div>
           </div>
@@ -201,52 +324,35 @@ export default function Page() {
             <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
 
               {isSignUp && (
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
-                    Họ và Tên
-                    <span className="relative">
-                      <User className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
-                      <input 
-                        required 
-                        name="fullName"
-                        type="text" 
-                        value={formData.fullName}
-                        onChange={handleInputChange}
-                        placeholder="Alex Morgan" 
-                        className="auth-input pl-10" 
-                      />
-                    </span>
-                  </label>
-                  <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
-                    Tên Đăng Nhập
-                    <span className="relative">
-                      <Users className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
-                      <input 
-                        required 
-                        name="username"
-                        type="text" 
-                        value={formData.username}
-                        onChange={handleInputChange}
-                        placeholder="alexmorgan" 
-                        className="auth-input pl-10" 
-                      />
-                    </span>
-                  </label>
-                </div>
+                <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
+                  Họ và Tên
+                  <span className="relative">
+                    <User className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+                    <input
+                      required
+                      name="fullName"
+                      type="text"
+                      value={formData.fullName}
+                      onChange={handleInputChange}
+                      placeholder="Nguyễn Văn An"
+                      className="auth-input pl-10"
+                    />
+                  </span>
+                </label>
               )}
 
               {!isSignUp && (
                 <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
-                  Tên Đăng Nhập
+                  Địa chỉ Email
                   <span className="relative">
-                    <User className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+                    <Mail className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
                     <input 
                       required 
-                      name="username"
-                      type="text" 
-                      value={formData.username}
+                      name="email"
+                      type="email"
+                      value={formData.email}
                       onChange={handleInputChange}
-                      placeholder="Enter your username" 
+                      placeholder="ban@example.com"
                       className="auth-input pl-10" 
                     />
                   </span>
@@ -264,7 +370,7 @@ export default function Page() {
                       type="email" 
                       value={formData.email}
                       onChange={handleInputChange}
-                      placeholder="you@example.com" 
+                      placeholder="ban@example.com"
                       className="auth-input pl-10" 
                     />
                   </span>
@@ -312,38 +418,46 @@ export default function Page() {
                 disabled={loading}
                 className="group mt-2 flex h-12 items-center justify-center gap-2 rounded-xl bg-[#172554] text-sm font-semibold text-white shadow-lg shadow-indigo-950/15 transition-all hover:-translate-y-0.5 hover:bg-[#1e3a8a] focus:outline-none focus:ring-4 focus:ring-indigo-200 disabled:opacity-50"
               >
-                {loading ? 'Processing...' : (isSignUp ? 'Đăng Ký' : 'Đăng Nhập')}
+                {loading ? 'Đang xử lý...' : (isSignUp ? 'Đăng Ký' : 'Đăng Nhập')}
                 <ArrowRight className="size-4 transition-transform group-hover:translate-x-1" />
               </button>
               
               <div className="flex items-center gap-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
                 <div className="h-px flex-1 bg-slate-200" />
-                <span>OR</span>
+                <span>HOẶC</span>
                 <div className="h-px flex-1 bg-slate-200" />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  className="flex h-12 min-w-0 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 shadow-sm transition-all hover:-translate-y-0.5 hover:border-slate-300 hover:bg-slate-50 hover:shadow-md focus:outline-none focus:ring-4 focus:ring-slate-100"
-                >
-                  <svg aria-hidden="true" className="size-5 shrink-0" viewBox="0 0 24 24">
-                    <path fill="#4285F4" d="M21.35 12.27c0-.79-.07-1.55-.23-2.27H12v4.3h5.22a4.46 4.46 0 0 1-1.94 2.93v2.44h3.14c1.84-1.69 2.93-4.18 2.93-7.4Z" />
-                    <path fill="#34A853" d="M12 21.75c2.63 0 4.84-.87 6.45-2.36l-3.14-2.44c-.87.58-1.98.92-3.31.92-2.54 0-4.69-1.72-5.46-4.03H3.3v2.52A9.75 9.75 0 0 0 12 21.75Z" />
-                    <path fill="#FBBC05" d="M6.54 13.84a5.86 5.86 0 0 1 0-3.68V7.64H3.3a9.75 9.75 0 0 0 0 8.72l3.24-2.52Z" />
-                    <path fill="#EA4335" d="M12 6.13c1.43 0 2.71.49 3.72 1.45l2.79-2.79C16.84 3.2 14.63 2.25 12 2.25a9.75 9.75 0 0 0-8.7 5.39l3.24 2.52C7.31 7.85 9.46 6.13 12 6.13Z" />
-                  </svg>
-                  <span className="truncate">{isSignUp ? 'Đăng Ký với Google' : 'Đăng Nhập với Google'}</span>
-                </button>
-                <button
-                  type="button"
-                  className="flex h-12 min-w-0 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 shadow-sm transition-all hover:-translate-y-0.5 hover:border-slate-300 hover:bg-slate-50 hover:shadow-md focus:outline-none focus:ring-4 focus:ring-slate-100"
-                >
-                  <svg aria-hidden="true" className="size-5 shrink-0" viewBox="0 0 24 24" fill="#1877F2">
-                    <path d="M24 12.07C24 5.41 18.63 0 12 0S0 5.41 0 12.07c0 6.02 4.39 11 10.13 11.93v-8.43H7.08v-3.5h3.05V9.4c0-3.04 1.79-4.73 4.58-4.73 1.33 0 2.72.24 2.72.24v3.01h-1.53c-1.51 0-1.98.94-1.98 1.9v2.25h3.37l-.54 3.5h-2.83V24C19.61 23.07 24 18.09 24 12.07Z" />
-                  </svg>
-                  <span className="truncate">{isSignUp ? 'Đăng Ký với Facebook' : 'Đăng Nhập với Facebook'}</span>
-                </button>
+                {googleClientId ? (
+                  <>
+                    <div className="flex min-h-12 min-w-0 items-center justify-center overflow-hidden">
+                      <div className="w-full" ref={googleSignUpButtonRef} />
+                    </div>
+                    <div className="flex min-h-12 min-w-0 items-center justify-center overflow-hidden">
+                      <div className="w-full" ref={googleSignInButtonRef} />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    {(['Đăng ký bằng Google', 'Đăng nhập bằng Google'] as const).map((label) => (
+                      <button
+                        key={label}
+                        type="button"
+                        onClick={() => alert('Đăng nhập Google chưa được cấu hình. Hãy thiết lập NEXT_PUBLIC_GOOGLE_CLIENT_ID.')}
+                        className="flex h-12 min-w-0 items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 shadow-sm transition-all hover:-translate-y-0.5 hover:border-slate-300 hover:bg-slate-50 hover:shadow-md focus:outline-none focus:ring-4 focus:ring-slate-100"
+                      >
+                        <svg aria-hidden="true" className="size-5 shrink-0" viewBox="0 0 24 24">
+                          <path fill="#4285F4" d="M21.35 12.27c0-.79-.07-1.55-.23-2.27H12v4.3h5.22a4.46 4.46 0 0 1-1.94 2.93v2.44h3.14c1.84-1.69 2.93-4.18 2.93-7.4Z" />
+                          <path fill="#34A853" d="M12 21.75c2.63 0 4.84-.87 6.45-2.36l-3.14-2.44c-.87.58-1.98.92-3.31.92-2.54 0-4.69-1.72-5.46-4.03H3.3v2.52A9.75 9.75 0 0 0 12 21.75Z" />
+                          <path fill="#FBBC05" d="M6.54 13.84a5.86 5.86 0 0 1 0-3.68V7.64H3.3a9.75 9.75 0 0 0 0 8.72l3.24-2.52Z" />
+                          <path fill="#EA4335" d="M12 6.13c1.43 0 2.71.49 3.72 1.45l2.79-2.79C16.84 3.2 14.63 2.25 12 2.25a9.75 9.75 0 0 0-8.7 5.39l3.24 2.52C7.31 7.85 9.46 6.13 12 6.13Z" />
+                        </svg>
+                        <span className="truncate">{label}</span>
+                      </button>
+                    ))}
+                  </>
+                )}
               </div>
             </form>
 

@@ -10,10 +10,6 @@ import lombok.Setter;
 @Setter
 public class RegisterRequest {
 
-    @NotBlank(message = "Username cannot be blank")
-    @Size(min = 3, max = 20, message = "Username must be between 3 and 20 characters")
-    private String username;
-
     @NotBlank(message = "Full name cannot be blank")
     private String fullName;
 

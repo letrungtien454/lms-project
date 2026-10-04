@@ -10,8 +10,7 @@ import lombok.Getter;
 @Builder
 public class AuthResponse {
     private String token;
-    private String username;
-    private String fullName;
     private String email;
+    private String fullName;
     private Role role;
 }

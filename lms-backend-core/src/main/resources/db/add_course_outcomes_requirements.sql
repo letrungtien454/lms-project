@@ -1,0 +1,4 @@
+ALTER TABLE courses
+    ADD COLUMN IF NOT EXISTS outcomes TEXT,
+    ADD COLUMN IF NOT EXISTS requirements TEXT,
+    ADD COLUMN IF NOT EXISTS thumbnail_url TEXT;

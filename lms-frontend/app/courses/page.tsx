@@ -1,6 +1,7 @@
 'use client'
 
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState, useEffect, useRef } from 'react'
+import { useRouter } from 'next/navigation'
 import {
   ArrowRight,
   Award,
@@ -46,8 +47,32 @@ const defaultCourses = [
   { id: 'data-visualization', title: 'Data Visualization & Analytics with Python', instructor: 'Owen Clark', category: 'Data Science', rating: 4.4, students: '540', price: 0, level: 'Intermediate', duration: '10h 30m', color: 'from-amber-400 via-orange-500 to-rose-900', thumbnailUrl: 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=600' },
 ]
 
-const categories = ['Programming', 'Web Dev', 'Data Science', 'AI', 'Security']
-const levels = ['Beginner', 'Intermediate', 'Advanced']
+const categories = ['Programming', 'Web Development', 'Database', 'Artificial Intelligence', 'Data Science', 'Cyber Security', 'General']
+const categoryValues: Record<string, string[]> = {
+  Programming: ['programming'],
+  'Web Development': ['web development', 'web dev'],
+  Database: ['database'],
+  'Artificial Intelligence': ['artificial intelligence', 'ai'],
+  'Data Science': ['data science'],
+  'Cyber Security': ['cyber security', 'security'],
+  General: ['general'],
+}
+const categoryLabels: Record<string, string> = {
+  Programming: 'Lập trình',
+  'Web Development': 'Phát triển Web',
+  Database: 'Cơ sở dữ liệu',
+  'Artificial Intelligence': 'Trí tuệ nhân tạo',
+  'Data Science': 'Khoa học dữ liệu',
+  'Cyber Security': 'An ninh mạng',
+  General: 'Tổng hợp',
+}
+const levels = ['BEGINNER', 'INTERMEDIATE', 'ADVANCED', 'ALL_LEVELS']
+const levelLabels: Record<string, string> = {
+  BEGINNER: 'Sơ cấp',
+  INTERMEDIATE: 'Trung cấp',
+  ADVANCED: 'Cao cấp',
+  ALL_LEVELS: 'Mọi trình độ',
+}
 
 const formatPrice = (price: number) =>
   price === 0 ? 'Miễn phí' : `${new Intl.NumberFormat('vi-VN').format(price)}đ`
@@ -68,12 +93,47 @@ function Logo() {
 function Header({
   collapsed,
   onToggle,
+  isLoggedIn,
+  user,
+  courses,
+  onLogout,
 }: {
   collapsed: boolean
   onToggle: () => void
+  isLoggedIn: boolean
+  user: { fullName?: string; email?: string; avatarUrl?: string } | null
+  courses: any[]
+  onLogout: () => void
 }) {
   const [open, setOpen] = useState(false)
   const [isDark, setIsDark] = useState(false)
+  const [dropdownOpen, setDropdownOpen] = useState(false)
+  const [headerSearch, setHeaderSearch] = useState('')
+  const [searchOpen, setSearchOpen] = useState(false)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+  const searchRef = useRef<HTMLDivElement>(null)
+  const router = useRouter()
+  const searchResults = headerSearch.trim()
+    ? courses.filter((course) => {
+        const instructor = course.teacher?.fullName || course.instructorName || course.instructor || ''
+        return `${course.title || course.name || ''} ${instructor}`
+          .toLocaleLowerCase('vi')
+          .includes(headerSearch.trim().toLocaleLowerCase('vi'))
+      }).slice(0, 6)
+    : []
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setDropdownOpen(false)
+      }
+      if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
+        setSearchOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   return (
     <header className="sticky top-0 z-50 border-b border-slate-200/70 bg-white/95 backdrop-blur-xl transition-all">
@@ -102,12 +162,52 @@ function Header({
         </nav>
 
         <div className="hidden max-w-sm flex-1 md:block">
-          <div className="relative">
+          <div className="relative" ref={searchRef}>
             <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
             <input
+              value={headerSearch}
+              onFocus={() => setSearchOpen(true)}
+              onChange={(event) => {
+                setHeaderSearch(event.target.value)
+                setSearchOpen(true)
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && headerSearch.trim()) {
+                  router.push(`/courses?search=${encodeURIComponent(headerSearch.trim())}`)
+                  setSearchOpen(false)
+                }
+              }}
               className="h-9.5 w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-4 text-xs text-slate-700 outline-none transition focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-50"
               placeholder="Tìm khóa học, giảng viên..."
+              aria-label="Tìm khóa học hoặc giảng viên"
+              aria-expanded={searchOpen && !!headerSearch.trim()}
+              aria-controls="course-search-suggestions"
             />
+            {searchOpen && headerSearch.trim() && (
+              <div id="course-search-suggestions" role="listbox" className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-2xl border border-slate-200 bg-white py-2 shadow-xl">
+                {searchResults.length ? searchResults.map((course) => (
+                  <button
+                    key={course.id}
+                    type="button"
+                    role="option"
+                    onClick={() => {
+                      router.push(`/courses/${course.id}`)
+                      setHeaderSearch('')
+                      setSearchOpen(false)
+                    }}
+                    className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-blue-50"
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate text-xs font-bold text-slate-800">{course.title || course.name}</span>
+                      <span className="mt-1 block truncate text-[11px] text-slate-400">{course.teacher?.fullName || course.instructorName || course.instructor || 'EduFlow'}</span>
+                    </span>
+                    <ArrowRight className="size-4 shrink-0 text-blue-500" />
+                  </button>
+                )) : (
+                  <p className="px-4 py-3 text-xs text-slate-500">Không tìm thấy khóa học phù hợp.</p>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -128,6 +228,49 @@ function Header({
             <Bell className="size-4" />
           </button>
 
+          {isLoggedIn ? (
+            <div className="relative ml-2 flex items-center gap-2 border-l border-slate-200 pl-3" ref={dropdownRef}>
+              <button
+                type="button"
+                onClick={() => setDropdownOpen((value) => !value)}
+                className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 p-1.5 hover:border-blue-200 hover:bg-blue-50"
+                aria-expanded={dropdownOpen}
+                aria-label="Mở menu tài khoản"
+              >
+                <span className="flex size-8 items-center justify-center overflow-hidden rounded-lg bg-blue-600 text-sm font-bold text-white">
+                  {user?.avatarUrl
+                    ? <img src={user.avatarUrl} alt="" className="size-full object-cover" />
+                    : (user?.fullName?.trim().split(/\s+/).at(-1)?.[0] || 'U').toUpperCase()}
+                </span>
+                <span className="max-w-32 truncate text-xs font-bold text-slate-700">
+                  {user?.fullName || 'Học viên'}
+                </span>
+                <ChevronDown className="size-3.5 text-slate-400" />
+              </button>
+              {dropdownOpen && (
+                <div className="absolute right-0 top-12 z-50 w-56 rounded-2xl border border-slate-100 bg-white p-2 shadow-xl">
+                  <div className="border-b border-slate-100 px-3 py-2">
+                    <p className="truncate text-xs font-bold text-slate-900">{user?.fullName || 'Học viên'}</p>
+                    <p className="truncate text-[11px] text-slate-400">{user?.email}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => router.push('/dashboard')}
+                    className="w-full rounded-lg px-3 py-2.5 text-left text-xs font-semibold text-slate-600 hover:bg-blue-50 hover:text-blue-700"
+                  >
+                    Trang cá nhân
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onLogout}
+                    className="w-full rounded-lg px-3 py-2.5 text-left text-xs font-semibold text-red-600 hover:bg-red-50"
+                  >
+                    Đăng xuất
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
           <div className="ml-2 flex items-center gap-2 border-l border-slate-200 pl-3">
             <a
               href="/auth"
@@ -142,6 +285,7 @@ function Header({
               Đăng nhập
             </a>
           </div>
+          )}
         </div>
 
         <button
@@ -159,26 +303,72 @@ function Header({
             {['Trang chủ', 'Khóa học', 'Danh mục'].map((item) => (
               <a
                 key={item}
-                href={item === 'Trang chủ' ? '/' : `/courses`}
+                href={item === 'Trang chủ' ? '/dashboard' : `/courses`}
                 onClick={() => setOpen(false)}
                 className="rounded-lg px-3 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
               >
                 {item}
               </a>
             ))}
+            <label className="relative mt-2 block md:hidden">
+              <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+              <input
+                value={headerSearch}
+                onFocus={() => setSearchOpen(true)}
+                onChange={(event) => {
+                  setHeaderSearch(event.target.value)
+                  setSearchOpen(true)
+                }}
+                placeholder="Tìm khóa học, giảng viên..."
+                className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-3 text-sm outline-none focus:border-blue-300"
+              />
+            </label>
+            {searchOpen && headerSearch.trim() && (
+              <div className="mt-2 overflow-hidden rounded-xl border border-slate-200 bg-white">
+                {searchResults.length ? searchResults.map((course) => (
+                  <button
+                    key={course.id}
+                    type="button"
+                    onClick={() => {
+                      router.push(`/courses/${course.id}`)
+                      setHeaderSearch('')
+                      setSearchOpen(false)
+                      setOpen(false)
+                    }}
+                    className="block w-full border-b border-slate-100 px-3 py-3 text-left last:border-0"
+                  >
+                    <span className="block truncate text-xs font-bold text-slate-800">{course.title || course.name}</span>
+                    <span className="mt-1 block truncate text-[11px] text-slate-400">{course.teacher?.fullName || course.instructorName || course.instructor || 'EduFlow'}</span>
+                  </button>
+                )) : (
+                  <p className="px-3 py-3 text-xs text-slate-500">Không tìm thấy khóa học phù hợp.</p>
+                )}
+              </div>
+            )}
             <div className="mt-2 flex gap-2 border-t border-slate-100 pt-3">
-              <a
-                href="/auth"
-                className="flex-1 rounded-lg border border-slate-200 py-2.5 text-center text-sm font-semibold text-slate-700"
-              >
-                Đăng nhập
-              </a>
-              <a
-                href="/auth"
-                className="flex-1 rounded-lg bg-blue-600 py-2.5 text-center text-sm font-semibold text-white"
-              >
-                Đăng ký
-              </a>
+              {isLoggedIn ? (
+                <>
+                  <span className="flex-1 self-center truncate text-sm font-semibold text-slate-700">
+                    {user?.fullName || 'Học viên'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={onLogout}
+                    className="rounded-lg bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-600"
+                  >
+                    Đăng xuất
+                  </button>
+                </>
+              ) : (
+                <>
+                  <a href="/auth" className="flex-1 rounded-lg border border-slate-200 py-2.5 text-center text-sm font-semibold text-slate-700">
+                    Đăng nhập
+                  </a>
+                  <a href="/auth" className="flex-1 rounded-lg bg-blue-600 py-2.5 text-center text-sm font-semibold text-white">
+                    Đăng ký
+                  </a>
+                </>
+              )}
             </div>
           </nav>
         </div>
@@ -298,13 +488,13 @@ function CourseCard({ course }: { course: any }) {
             alt={course.title || course.name}
             className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
           />
-          <div className="absolute inset-x-0 top-0 flex items-center justify-between p-3 z-10 bg-gradient-to-b from-black/50 to-transparent">
+          <div className="absolute inset-x-0 top-0 flex items-center justify-between p-3 z-10 bg-linear-to-b from-black/50 to-transparent">
             <span
               className={`rounded-full px-2.5 py-1 text-[10px] font-bold text-white backdrop-blur-sm ${
                 isFree ? 'bg-emerald-500/90' : 'bg-blue-600/90'
               }`}
             >
-              {isFree ? 'Free' : course.category || 'Bestseller'}
+              {isFree ? 'Miễn phí' : categoryLabels[course.categoryName || course.category] || course.categoryName || course.category || 'Khóa học'}
             </span>
             <div className="rounded-xl bg-black/20 p-1.5 text-white backdrop-blur-sm">
               <Code2 className="size-4" />
@@ -314,7 +504,7 @@ function CourseCard({ course }: { course: any }) {
 
         {/* Nội dung thông tin khóa học */}
         <div className="p-4">
-          <h3 className="text-sm font-bold text-slate-900 leading-snug line-clamp-2 min-h-[2.5rem] group-hover:text-blue-600 transition">
+          <h3 className="text-sm font-bold text-slate-900 leading-snug line-clamp-2 min-h-10 group-hover:text-blue-600 transition">
             {course.title || course.name}
           </h3>
 
@@ -322,7 +512,7 @@ function CourseCard({ course }: { course: any }) {
 
           <div className="mt-3 flex flex-wrap items-center gap-2.5 text-[11px] text-slate-500">
             <span className="flex items-center gap-1 font-semibold text-amber-500">
-              <Star className="size-3.5 fill-current" /> {course.rating || '4.8'}
+              <Star className="size-3.5 fill-current" /> {course.rating ? Number(course.rating).toFixed(1) : 'Chưa có đánh giá'}
             </span>
             <span className="flex items-center gap-1">
               <Users className="size-3.5" /> {course.students || '1.2k'}
@@ -340,7 +530,7 @@ function CourseCard({ course }: { course: any }) {
           <p className={`text-sm font-bold ${isFree ? 'text-emerald-600' : 'text-[#17305f]'}`}>
             {formatPrice(numericPrice)}
           </p>
-          <span className="text-[10px] font-semibold text-slate-400">{course.level || 'Beginner'}</span>
+          <span className="text-[10px] font-semibold text-slate-400">{levelLabels[String(course.level || '').toUpperCase()] || 'Chưa xác định trình độ'}</span>
         </div>
       </div>
     </a>
@@ -351,16 +541,33 @@ export default function CoursesPage() {
   const [collapsed, setCollapsed] = useState(false)
   const [activeTab, setActiveTab] = useState<string | null>(null)
   const [dbCourses, setDbCourses] = useState<any[]>([])
+  const [user, setUser] = useState<{ fullName?: string; email?: string; avatarUrl?: string } | null>(null)
+  const [isLoggedIn, setIsLoggedIn] = useState(false)
 
   const [selectedCategories, setSelectedCategories] = useState<string[]>([])
   const [price, setPrice] = useState('All')
   const [selectedLevels, setSelectedLevels] = useState<string[]>([])
   const [rating, setRating] = useState('All')
-  const [sort, setSort] = useState('Most Popular')
+  const [sort, setSort] = useState('popular')
   const [search, setSearch] = useState('')
   const [mobileFilters, setMobileFilters] = useState(false)
   const [page, setPage] = useState(1)
-  const totalPages = 10
+  const pageSize = 12
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const category = params.get('category')
+    const priceParam = params.get('price') || params.get('type')
+    const searchParam = params.get('search')
+
+    if (category && category.toLowerCase() !== 'all') {
+      const matchedCategory = categories.find((item) => item.toLowerCase() === category.toLowerCase())
+      if (matchedCategory) setSelectedCategories([matchedCategory])
+    }
+    if (priceParam?.toLowerCase() === 'free' || priceParam === 'Miễn phí') setPrice('Free')
+    if (priceParam?.toLowerCase() === 'paid') setPrice('Paid')
+    if (searchParam) setSearch(searchParam)
+  }, [])
 
   // Gọi API lấy toàn bộ danh sách khóa học từ Backend
   useEffect(() => {
@@ -373,6 +580,26 @@ export default function CoursesPage() {
       })
       .catch((err) => console.error('Lỗi kết nối API Backend:', err))
   }, [])
+
+  useEffect(() => {
+    const token = localStorage.getItem('accessToken')
+    if (!token) return
+    setIsLoggedIn(true)
+    fetch('http://localhost:8080/api/users/me', {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => {
+        if (data) setUser(data)
+      })
+      .catch((error) => console.error('Không thể tải thông tin tài khoản:', error))
+  }, [])
+
+  const handleLogout = () => {
+    localStorage.removeItem('accessToken')
+    setUser(null)
+    setIsLoggedIn(false)
+  }
 
   const coursesList = useMemo(() => {
     return dbCourses.length > 0 ? dbCourses : defaultCourses
@@ -392,27 +619,46 @@ export default function CoursesPage() {
 
   const filteredCourses = useMemo(() => {
     const result = coursesList.filter((course) => {
-      const instructorName = course.teacher?.fullName || course.instructor || ''
-      const matchesSearch = `${course.title || course.name} ${instructorName}`.toLowerCase().includes(search.toLowerCase())
-      const matchesCategory = selectedCategories.length === 0 || selectedCategories.includes(course.category || course.category?.name)
-      const matchesLevel = selectedLevels.length === 0 || selectedLevels.includes(course.level || 'Beginner')
+      const instructorName = course.teacher?.fullName || course.instructorName || course.instructor || ''
+      const query = search.trim().toLocaleLowerCase('vi')
+      const matchesSearch = `${course.title || course.name || ''} ${instructorName}`.toLocaleLowerCase('vi').includes(query)
+      const category = String(course.categoryName || course.category?.name || course.category || '').toLowerCase()
+      const matchesCategory = selectedCategories.length === 0 || selectedCategories.some((selected) => {
+        const selectedValues = categoryValues[selected] || [selected.toLowerCase()]
+        return selectedValues.some((value) => category.includes(value))
+      })
+      const courseLevel = String(course.level || '').toUpperCase()
+      const matchesLevel = selectedLevels.length === 0
+        || selectedLevels.includes(courseLevel)
+        || (courseLevel === 'ALL_LEVELS' && selectedLevels.some((level) => level !== 'ALL_LEVELS'))
       
       const p = Number(course.price) || 0
       const matchesPrice = price === 'All' || (price === 'Free' ? p === 0 : p > 0)
       
-      const r = Number(course.rating) || 4.8
-      const matchesRating = rating === 'All' || r >= Number(rating)
+      const r = Number(course.rating)
+      const matchesRating = rating === 'All' || (Number.isFinite(r) && r >= Number(rating))
 
       return matchesSearch && matchesCategory && matchesLevel && matchesPrice && matchesRating
     })
 
     return [...result].sort((a, b) => {
-      if (sort === 'Highest Rated') return (Number(b.rating) || 0) - (Number(a.rating) || 0)
-      if (sort === 'Price: Low to High') return (Number(a.price) || 0) - (Number(b.price) || 0)
-      if (sort === 'Newest') return (b.id || 0) - (a.id || 0)
+      if (sort === 'rating') return (Number(b.rating) || 0) - (Number(a.rating) || 0)
+      if (sort === 'price') return (Number(a.price) || 0) - (Number(b.price) || 0)
+      if (sort === 'newest') return Number(b.id) - Number(a.id)
       return (Number(b.students) || 0) - (Number(a.students) || 0)
     })
   }, [coursesList, search, selectedCategories, selectedLevels, price, rating, sort])
+
+  const totalPages = Math.max(1, Math.ceil(filteredCourses.length / pageSize))
+  const paginatedCourses = filteredCourses.slice((page - 1) * pageSize, page * pageSize)
+
+  useEffect(() => {
+    setPage((currentPage) => Math.min(currentPage, totalPages))
+  }, [totalPages])
+
+  useEffect(() => {
+    setPage(1)
+  }, [search, selectedCategories, selectedLevels, price, rating, sort])
 
   const getPaginationItems = () => {
     const items: (number | string)[] = []
@@ -439,10 +685,15 @@ export default function CoursesPage() {
         </button>
       </div>
       <FilterGroup title="Danh mục">
+        <CheckOption
+          label="Tất cả danh mục"
+          checked={selectedCategories.length === 0}
+          onChange={() => setSelectedCategories([])}
+        />
         {categories.map((item) => (
           <CheckOption
             key={item}
-            label={item}
+            label={categoryLabels[item] || item}
             checked={selectedCategories.includes(item)}
             onChange={() => toggle(item, selectedCategories, setSelectedCategories)}
           />
@@ -464,7 +715,7 @@ export default function CoursesPage() {
         {levels.map((item) => (
           <CheckOption
             key={item}
-            label={item}
+            label={levelLabels[item]}
             checked={selectedLevels.includes(item)}
             onChange={() => toggle(item, selectedLevels, setSelectedLevels)}
           />
@@ -472,9 +723,10 @@ export default function CoursesPage() {
       </FilterGroup>
       <FilterGroup title="Đánh giá">
         {[
-          ['All', 'Tất cả'],
-          ['4.5', '4.5+ sao'],
-          ['4.0', '4.0+ sao'],
+          ['All', 'Tất cả đánh giá'],
+          ['4.5', '4.5 ⭐ trở lên'],
+          ['4.0', '4.0 ⭐ trở lên'],
+          ['3.5', '3.5 ⭐ trở lên'],
         ].map(([value, label]) => (
           <label key={value} className="flex cursor-pointer items-center gap-2 text-xs font-medium text-slate-600 hover:text-blue-600">
             <input type="radio" name="rating" checked={rating === value} onChange={() => setRating(value)} className="size-3.5 accent-blue-600" />
@@ -487,7 +739,14 @@ export default function CoursesPage() {
 
   return (
     <div className="flex min-h-screen w-screen flex-col bg-[#f8fbff] text-slate-900">
-      <Header collapsed={collapsed} onToggle={() => setCollapsed(!collapsed)} />
+      <Header
+        collapsed={collapsed}
+        onToggle={() => setCollapsed(!collapsed)}
+        isLoggedIn={isLoggedIn}
+        user={user}
+        courses={coursesList}
+        onLogout={handleLogout}
+      />
       <AppSidebar collapsed={collapsed} activeTab={activeTab} setActiveTab={setActiveTab} />
 
       <main className={`flex-1 transition-all duration-300 ${collapsed ? 'md:pl-19' : 'md:pl-64'}`}>
@@ -540,10 +799,10 @@ export default function CoursesPage() {
                       onChange={(e) => setSort(e.target.value)}
                       className="rounded-lg border-0 bg-slate-50 px-2.5 py-1.5 text-xs font-bold text-[#17305f] outline-none"
                     >
-                      <option>Most Popular</option>
-                      <option>Newest</option>
-                      <option>Highest Rated</option>
-                      <option>Price: Low to High</option>
+                      <option value="popular">Phổ biến nhất</option>
+                      <option value="newest">Mới nhất</option>
+                      <option value="rating">Đánh giá cao nhất</option>
+                      <option value="price">Giá: Thấp đến cao</option>
                     </select>
                   </label>
                 </div>
@@ -552,7 +811,7 @@ export default function CoursesPage() {
               {filteredCourses.length ? (
                 <>
                   <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                    {filteredCourses.map((course) => (
+                    {paginatedCourses.map((course) => (
                       <CourseCard key={course.id || course.title} course={course} />
                     ))}
                   </div>

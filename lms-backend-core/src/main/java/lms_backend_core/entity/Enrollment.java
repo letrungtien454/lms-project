@@ -3,7 +3,7 @@ package lms_backend_core.entity;
 import jakarta.persistence.*;
 import lombok.*;
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 
 @Entity
 @Table(name = "enrollments", uniqueConstraints = {
@@ -28,14 +28,14 @@ public class Enrollment {
     @JoinColumn(name = "course_id", nullable = false)
     private Course course;
 
-    @Column(name = "amount_paid", nullable = false)
+    @Column(name = "amount_paid", nullable = false, precision = 10, scale = 2)
     private BigDecimal amountPaid = BigDecimal.ZERO;
 
     @Column(name = "enrolled_at")
-    private LocalDateTime enrolledAt;
+    private OffsetDateTime enrolledAt;
 
     @PrePersist
     protected void onEnroll() {
-        this.enrolledAt = LocalDateTime.now();
+        this.enrolledAt = OffsetDateTime.now();
     }
 }

@@ -19,13 +19,12 @@ public class DataInitializer implements CommandLineRunner {
     @Override
     public void run(String... args) throws Exception {
         // 1. Tạo Giảng viên mẫu nếu chưa có
-        User teacher = userRepository.findByUsername("tienle").orElseGet(() -> 
+        User teacher = userRepository.findByEmail("trungtien1896@eduflow.com").orElseGet(() ->
             userRepository.save(User.builder()
-                .username("tienle")
                 .fullName("Lê Trung Tiến")
                 .email("trungtien1896@eduflow.com")
                 .password("$2a$10$abcdefghijklmnopqrstuv")
-                .role(Role.INSTRUCTOR)
+                .role(Role.TEACHER)
                 .build())
         );
 

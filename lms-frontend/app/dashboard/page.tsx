@@ -38,41 +38,61 @@ import {
 const categories = [
   {
     name: "Programming",
-    courses: "42 courses",
     icon: Code2,
     tint: "bg-blue-50 text-blue-600",
   },
   {
     name: "Web Development",
-    courses: "36 courses",
     icon: Globe2,
     tint: "bg-cyan-50 text-cyan-600",
   },
   {
     name: "Database",
-    courses: "18 courses",
     icon: Database,
     tint: "bg-violet-50 text-violet-600",
   },
   {
     name: "Artificial Intelligence",
-    courses: "24 courses",
     icon: Brain,
     tint: "bg-fuchsia-50 text-fuchsia-600",
   },
   {
     name: "Data Science",
-    courses: "29 courses",
     icon: Target,
     tint: "bg-amber-50 text-amber-600",
   },
   {
     name: "Cyber Security",
-    courses: "16 courses",
     icon: ShieldCheck,
     tint: "bg-emerald-50 text-emerald-600",
   },
 ];
+
+const categoryLabels: Record<string, string> = {
+  Programming: "Lập trình",
+  "Web Development": "Phát triển Web",
+  Database: "Cơ sở dữ liệu",
+  "Artificial Intelligence": "Trí tuệ nhân tạo",
+  "Data Science": "Khoa học dữ liệu",
+  "Cyber Security": "An ninh mạng",
+};
+
+const categoryAliases: Record<string, string[]> = {
+  Programming: ["programming"],
+  "Web Development": ["web development", "web dev"],
+  Database: ["database"],
+  "Artificial Intelligence": ["artificial intelligence", "ai"],
+  "Data Science": ["data science"],
+  "Cyber Security": ["cyber security", "security"],
+};
+
+function getCategoryCount(courses: any[], category: string) {
+  const aliases = categoryAliases[category] || [category.toLowerCase()];
+  return courses.filter((course) => {
+    const name = String(course.categoryName || course.category?.name || course.category || "").toLowerCase();
+    return aliases.some((alias) => name.includes(alias));
+  }).length;
+}
 
 // Dữ liệu mẫu dự phòng cho Khóa học Nổi bật
 const fallbackFeaturedCourses = [
@@ -752,7 +772,10 @@ function CourseCard({ course }: { course: any }) {
   const courseImage = course.thumbnailUrl || course.imageUrl || course.thumbnail || defaultImage;
 
   return (
-    <article className="group overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition-all hover:-translate-y-1 hover:shadow-xl hover:shadow-blue-100/70 flex flex-col justify-between">
+    <a
+      href={`/courses/${course.id || ""}`}
+      className="group flex flex-col justify-between overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition-all hover:-translate-y-1 hover:shadow-xl hover:shadow-blue-100/70"
+    >
       <div>
         {/* Banner: Luôn hiển thị hình ảnh mượt mà */}
         <div className="relative h-36 w-full overflow-hidden bg-slate-100">
@@ -769,7 +792,7 @@ function CourseCard({ course }: { course: any }) {
                 isFree ? "bg-emerald-500/90" : "bg-blue-600/90"
               }`}
             >
-              {isFree ? "Free" : "Bestseller"}
+              {isFree ? "Miễn phí" : "Bán chạy nhất"}
             </span>
             <div className="rounded-xl bg-black/20 p-1.5 text-white backdrop-blur-sm">
               <Code2 className="size-4" />
@@ -808,17 +831,16 @@ function CourseCard({ course }: { course: any }) {
             >
               {formattedPrice}
             </p>
-            <p className="text-[10px] text-slate-400">{course.level || "Beginner"}</p>
+            <p className="text-[10px] text-slate-400">
+              {({ BEGINNER: "Sơ cấp", INTERMEDIATE: "Trung cấp", ADVANCED: "Cao cấp", ALL_LEVELS: "Mọi trình độ" } as Record<string, string>)[course.level] || course.level || "Chưa xác định trình độ"}
+            </p>
           </div>
-          <a
-            href={`/courses/${course.id || ""}`}
-            className="flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-700 shrink-0"
-          >
-            View course <ChevronRight className="size-3.5" />
-          </a>
-        </div>
+            <span className="flex items-center gap-1 text-xs font-bold text-blue-600 shrink-0">
+              View course <ChevronRight className="size-3.5" />
+            </span>
+          </div>
       </div>
-    </article>
+    </a>
   );
 }
 
@@ -943,7 +965,7 @@ export default function Page() {
                   Khám phá các khóa học <ArrowRight className="size-4" />
                 </a>
                 <a
-                  href={isLoggedIn ? "/student/dashboard" : "/auth"}
+                  href={isLoggedIn ? "#courses" : "/auth"}
                   className="flex items-center gap-2 rounded-xl border border-blue-200 bg-white px-5 py-3.5 text-sm font-bold text-blue-700 transition hover:border-blue-400 hover:bg-blue-50"
                 >
                   <Play className="size-4 fill-current" />{" "}
@@ -989,16 +1011,16 @@ export default function Page() {
               </h2>
             </div>
             <a
-              href="/courses"
+              href="/courses?category=all"
               className="hidden items-center gap-1 text-sm font-bold text-blue-600 sm:flex"
             >
               Xem tất cả các danh mục <ArrowRight className="size-4" />
             </a>
           </div>
           <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-            {categories.map(({ name, courses: count, icon: Icon, tint }) => (
+            {categories.map(({ name, icon: Icon, tint }) => (
               <a
-                href="#courses"
+                href={`/courses?category=${encodeURIComponent(name)}`}
                 key={name}
                 className="group rounded-2xl border border-slate-200 bg-white p-4 transition hover:-translate-y-1 hover:border-blue-200 hover:shadow-lg hover:shadow-blue-100/60"
               >
@@ -1008,9 +1030,9 @@ export default function Page() {
                   <Icon className="size-5" />
                 </span>
                 <h3 className="mt-4 text-sm font-bold text-slate-800">
-                  {name}
+                  {categoryLabels[name] || name}
                 </h3>
-                <p className="mt-1 text-xs text-slate-400">{count}</p>
+                <p className="mt-1 text-xs text-slate-400">{getCategoryCount(dbCourses, name)} khóa học</p>
               </a>
             ))}
           </div>
@@ -1059,7 +1081,7 @@ export default function Page() {
                 </h2>
               </div>
               <a
-                href="/courses?type=paid"
+                href="/courses?price=paid"
                 className="flex items-center gap-1 text-sm font-bold text-blue-600 hover:text-blue-700"
               >
                 Xem tất cả khóa học có phí <ArrowRight className="size-4" />
@@ -1086,7 +1108,7 @@ export default function Page() {
                 </h2>
               </div>
               <a
-                href="/courses?type=free"
+                href="/courses?price=free"
                 className="flex items-center gap-1 text-sm font-bold text-emerald-600 hover:text-emerald-700"
               >
                 Khám phá thêm miễn phí <ArrowRight className="size-4" />
@@ -1159,10 +1181,10 @@ export default function Page() {
                 khăn, và nhận các khuyến nghị phù hợp với cách học của bạn.
               </p>
               <a
-                href={isLoggedIn ? "/student/dashboard" : "/auth"}
+                href="/courses"
                 className="mt-7 inline-flex items-center gap-2 rounded-xl bg-white px-5 py-3.5 text-sm font-bold text-[#173b8f] hover:bg-blue-50"
               >
-                Trợ lý AI <ArrowRight className="size-4" />
+                Trải nghiệm ngay <ArrowRight className="size-4" />
               </a>
             </div>
             <div className="relative mx-auto w-full max-w-md rounded-3xl border border-white/15 bg-white/10 p-4 shadow-2xl backdrop-blur">
@@ -1299,13 +1321,13 @@ export default function Page() {
             </div>
             <div className="flex flex-wrap gap-3">
               <a
-                href="#courses"
+                href="/courses"
                 className="rounded-xl bg-white px-5 py-3 text-sm font-bold text-blue-700 hover:bg-blue-50"
               >
                 Khám phá các khóa học
               </a>
               <a
-                href={isLoggedIn ? "/student/dashboard" : "/auth"}
+                href="/courses"
                 className="rounded-xl border border-white/40 px-5 py-3 text-sm font-bold text-white hover:bg-white/10"
               >
                 {isLoggedIn ? "Vào Dashboard" : "Create free account"}

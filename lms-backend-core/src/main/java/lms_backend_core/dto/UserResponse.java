@@ -1,0 +1,14 @@
+package lms_backend_core.dto;
+
+import lms_backend_core.entity.User;
+
+public record UserResponse(Long id, String email, String fullName, String avatarUrl, String role) {
+    public static UserResponse from(User user) {
+        return new UserResponse(
+                user.getId(),
+                user.getEmail(),
+                user.getFullName(),
+                user.getAvatarUrl(),
+                user.getRole().name());
+    }
+}

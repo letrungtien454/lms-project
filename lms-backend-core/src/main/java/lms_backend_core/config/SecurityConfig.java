@@ -1,6 +1,7 @@
 package lms_backend_core.config;
 
 import lms_backend_core.security.JwtAuthenticationFilter;
+import jakarta.servlet.DispatcherType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -34,38 +35,43 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-            // 1. Kích hoạt cấu hình CORS
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-            // 2. Tắt CSRF cho REST API Stateless
             .csrf(AbstractHttpConfigurer::disable)
-            // 3. Quản lý Session Stateless với JWT
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-            // 4. Phân quyền Endpoint
             .authorizeHttpRequests(auth -> auth
-                // Cho phép tất cả các Request kiểu OPTIONS (CORS Preflight) đi qua
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                
-                // Công khai API đăng nhập, đăng ký và xem danh sách khóa học
-                .requestMatchers("/api/auth/**", "/api/courses/**").permitAll()
-                
-                // Mở quyền rõ ràng cho API Đăng ký học (Yêu cầu phải Đăng nhập / Có Token)
+                .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/lessons/*/attachments").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/lessons/*/quiz").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/lessons/*/comments").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/lessons/*/interactive-questions").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/payments/vnpay/ipn").permitAll()
+                .requestMatchers(HttpMethod.GET, "/uploads/**").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/lessons/*/attachments/*/download").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/courses/*/progress").authenticated()
+                .requestMatchers("/api/lessons/**").authenticated()
+                .requestMatchers("/api/auth/**", "/api/courses", "/api/courses/**").permitAll()
+                .requestMatchers("/api/ai/**").authenticated()
                 .requestMatchers("/api/enrollments/**").authenticated()
-                
                 .anyRequest().authenticated()
             )
-            // 5. Thêm JWT Filter
+            // Nếu gửi Token hỏng ở endpoint permitAll thì không chặn 403
+            .exceptionHandling(exception -> exception
+                .authenticationEntryPoint((request, response, authException) -> {
+                    response.sendError(jakarta.servlet.http.HttpServletResponse.SC_UNAUTHORIZED, "Unauthorized");
+                })
+            )
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }
 
-    // Bean cấu hình CORS đầy đủ cho Frontend
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(List.of("http://localhost:3000"));
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"));
-        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Requested-With", "Accept", "Origin"));
+        configuration.setAllowedHeaders(List.of("*"));
         configuration.setExposedHeaders(List.of("Authorization"));
         configuration.setAllowCredentials(true);
 

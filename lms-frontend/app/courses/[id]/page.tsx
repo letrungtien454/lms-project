@@ -2,7 +2,7 @@
 
 import useSWR from "swr";
 import { useState, useRef, useEffect, use } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Award,
   Bell,
@@ -38,34 +38,68 @@ import {
   AlertCircle,
 } from "lucide-react";
 
+type ApiLesson = {
+  id: string | number;
+  name: string;
+  duration?: string;
+  isPreview?: boolean;
+  orderIndex?: number;
+  lessonType?: string;
+};
+
+type ApiChapter = {
+  id: string | number;
+  title: string;
+  orderIndex?: number;
+  lessons?: ApiLesson[];
+};
+
 type ApiCourse = {
   id?: string | number;
   title?: string;
   description?: string;
+  outcomes?: string;
+  requirements?: string;
   price?: number;
+  level?: string;
+  thumbnailUrl?: string;
   thumbnail?: string;
   category?: string;
   instructor?: string;
+  chapters?: ApiChapter[];
 };
 
-const fetcher = (url: string) =>
-  fetch(url).then((response) => {
+const fetcher = (url: string) => {
+  const token = typeof window !== 'undefined' ? localStorage.getItem("accessToken") : null;
+  const headers: HeadersInit = {};
+
+  if (token && token !== "null" && token !== "undefined") {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  return fetch(url, { headers }).then((response) => {
     if (!response.ok) throw new Error("Không thể tải khóa học");
     return response.json();
   });
+};
+
+const authUrlFor = (returnUrl: string) => `/auth?returnUrl=${encodeURIComponent(returnUrl)}`;
 
 const fallbackCourse: Required<ApiCourse> = {
   id: "1",
-  title: "Responsive Với Grid System",
-  description:
-    "Trong khóa này chúng ta sẽ học về cách xây dựng giao diện web responsive với Grid System, tương tự Bootstrap 4.",
+  title: "Khóa học Lập trình EduFlow",
+  description: "Hiểu sâu hơn về cách JavaScript hoạt động, tìm hiểu về IIFE, closure, reference types, this keyword, bind, call, apply, prototype, ...",
+  outcomes: "Được học kiến thức miễn phí với nội dung chất lượng hơn mất phí\nCác kiến thức nâng cao của Javascript giúp code trở nên tối ưu hơn\nHiểu được cách tư duy nâng cao của các lập trình viên có kinh nghiệm\nHiểu được các khái niệm khó như từ khóa this, phương thức bind, call, apply & xử lý bất đồng bộ",
+  requirements: "Hoàn thành khóa học Javascript cơ bản hoặc đã nắm chắc kiến thức căn bản.\nMáy tính kết nối internet và tinh thần tự học cao.",
   price: 0,
+  level: "ALL_LEVELS",
+  thumbnailUrl: "",
   thumbnail: "",
   category: "Lập trình Web",
-  instructor: "Nguyễn Văn An",
+  instructor: "EduFlow Instructor",
+  chapters: [],
 };
 
-// Dữ liệu mẫu các Khóa học liên quan
 const relatedCoursesData = [
   {
     id: "2",
@@ -99,52 +133,11 @@ const relatedCoursesData = [
   },
 ];
 
-const outcomes = [
-  "Biết cách xây dựng website Responsive chuẩn chỉnh",
-  "Hiểu được tư tưởng thiết kế với Grid system hiện đại",
-  "Tự tay xây dựng được thư viện CSS Grid cá nhân",
-  "Tự hiểu và làm chủ Grid layout trong Bootstrap",
-];
-
-const chapters = [
-  {
-    title: "Bắt đầu",
-    lessons: [
-      { id: "1.1", name: "Responsive là gì?", duration: "07:28", preview: true },
-      { id: "1.2", name: "Chúng ta sẽ làm gì?", duration: "01:58", preview: true },
-      { id: "1.3", name: "Chuẩn bị công cụ làm việc", duration: "03:55", preview: false },
-    ],
-  },
-  {
-    title: "Viewport, @media, breakpoint",
-    lessons: [
-      { id: "2.1", name: "Tìm hiểu viewport", duration: "12:20", preview: false },
-      { id: "2.2", name: "Media query trong CSS", duration: "15:10", preview: false },
-      { id: "2.3", name: "Responsive thực chiến", duration: "18:40", preview: false },
-      { id: "2.4", name: "Bài tập tổng hợp", duration: "10:25", preview: false },
-    ],
-  },
-  {
-    title: "Thực hành nhỏ",
-    lessons: [
-      { id: "3.1", name: "Xây dựng layout responsive", duration: "22:12", preview: false },
-      { id: "3.2", name: "Hoàn thiện giao diện", duration: "16:30", preview: false },
-    ],
-  },
-  {
-    title: "Grid system",
-    lessons: [
-      { id: "4.1", name: "Tư duy Grid system", duration: "18:05", preview: false },
-      { id: "4.2", name: "Các cột và hàng", duration: "20:15", preview: false },
-    ],
-  },
-];
-
 const initialReviews = [
   {
     name: "Hoàng Nguyễn Văn",
     initials: "HV",
-    text: "Khóa học giúp mình hiểu rõ hơn về kiến thức mạng máy tính cơ bản, từ cách DNS phân giải tên miền, TCP, HTTPS đến các công cụ kiểm tra mạng. Rất phù hợp cho người mới!",
+    text: "Khóa học rất hay, bài giảng xúc tích, dễ hiểu và sát với thực tế đi làm.",
     rating: 5,
     title: "Khóa học dễ hiểu và thực tế",
     verified: true,
@@ -152,17 +145,9 @@ const initialReviews = [
   {
     name: "Nguyễn Minh Anh",
     initials: "MA",
-    text: "Nội dung rất thực tế, giảng viên giải thích rõ ràng và dễ áp dụng.",
+    text: "Nội dung thực tế, giảng viên giải thích rõ ràng và dễ áp dụng.",
     rating: 5,
     title: "Tuyệt vời",
-    verified: true,
-  },
-  {
-    name: "Trần Quốc Bảo",
-    initials: "QB",
-    text: "Lộ trình học được sắp xếp tốt. Mình đã tự tin hơn rất nhiều.",
-    rating: 5,
-    title: "Bài giảng chất lượng",
     verified: true,
   },
 ];
@@ -193,12 +178,14 @@ function Header({
   isLoggedIn,
   user,
   onLogout,
+  authHref,
 }: {
   collapsed: boolean;
   onToggle: () => void;
   isLoggedIn: boolean;
   user: any;
   onLogout: () => void;
+  authHref: string;
 }) {
   const [open, setOpen] = useState(false);
   const [isDark, setIsDark] = useState(false);
@@ -313,16 +300,6 @@ function Header({
                     <button
                       onClick={() => {
                         setDropdownOpen(false);
-                        router.push("/student/certificates");
-                      }}
-                      className="flex items-center gap-2.5 rounded-xl px-3 py-2.5 hover:bg-blue-50 hover:text-blue-600 transition text-left cursor-pointer"
-                    >
-                      <Award className="size-4 text-slate-400" />
-                      Chứng chỉ của tôi
-                    </button>
-                    <button
-                      onClick={() => {
-                        setDropdownOpen(false);
                         onLogout();
                       }}
                       className="flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-red-600 hover:bg-red-50 transition text-left font-semibold cursor-pointer"
@@ -337,13 +314,13 @@ function Header({
           ) : (
             <div className="ml-2 flex items-center gap-2 border-l border-slate-200 pl-3">
               <a
-                href="/auth"
+                href={authHref}
                 className="rounded-xl border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-semibold text-slate-600 hover:border-blue-200 hover:bg-blue-50 transition"
               >
                 Đăng ký
               </a>
               <a
-                href="/auth"
+                href={authHref}
                 className="rounded-xl bg-blue-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm shadow-blue-200 hover:bg-blue-700 transition"
               >
                 Đăng nhập
@@ -462,12 +439,20 @@ function Breadcrumb({ title }: { title: string }) {
 
 function Curriculum({
   courseId,
+  chapters = [],
+  isLoggedIn,
   isEnrolled,
+  authHref,
   onEnroll,
+  showToast,
 }: {
   courseId: string | number;
+  chapters?: ApiChapter[];
+  isLoggedIn: boolean;
   isEnrolled: boolean;
+  authHref: string;
   onEnroll: () => void;
+  showToast: (msg: string, type?: "success" | "error") => void;
 }) {
   const [openChapters, setOpenChapters] = useState<number[]>([0]);
   const router = useRouter();
@@ -488,13 +473,28 @@ function Curriculum({
     );
   };
 
-  const handleLessonClick = (lesson: any) => {
-    if (lesson.preview || isEnrolled) {
+  const handleLessonClick = (lesson: ApiLesson) => {
+    if (lesson.isPreview) {
       router.push(`/learning/${courseId}?lesson=${lesson.id}`);
-    } else {
-      onEnroll();
+      return;
     }
+
+    if (!isLoggedIn) {
+      showToast("Vui lòng đăng nhập để mở khóa bài học này!", "error");
+      router.push(authHref);
+      return;
+    }
+
+    if (!isEnrolled) {
+      showToast("Bạn cần đăng ký khóa học để học bài này!", "error");
+      onEnroll();
+      return;
+    }
+
+    router.push(`/learning/${courseId}?lesson=${lesson.id}`);
   };
+
+  const totalLessons = chapters.reduce((sum, ch) => sum + (ch.lessons?.length || 0), 0);
 
   return (
     <section>
@@ -504,71 +504,96 @@ function Curriculum({
             Nội dung khóa học
           </h2>
           <p className="mt-1 text-xs font-medium text-slate-500">
-            {chapters.length} chương <span className="mx-1">•</span>{" "}
-            {chapters.reduce((sum, ch) => sum + ch.lessons.length, 0)} bài học{" "}
-            <span className="mx-1">•</span> 06 giờ 44 phút thời lượng
+            {chapters.length} chương <span className="mx-1">•</span> {totalLessons} bài học
           </p>
         </div>
 
-        <button
-          onClick={toggleAll}
-          className="text-xs font-bold text-blue-600 hover:text-blue-700 transition cursor-pointer"
-        >
-          {isAllExpanded ? "Thu gọn tất cả" : "Mở rộng tất cả"}
-        </button>
+        {chapters.length > 0 && (
+          <button
+            onClick={toggleAll}
+            className="text-xs font-bold text-blue-600 hover:text-blue-700 transition cursor-pointer"
+          >
+            {isAllExpanded ? "Thu gọn tất cả" : "Mở rộng tất cả"}
+          </button>
+        )}
       </div>
 
       <div className="flex flex-col gap-2.5">
-        {chapters.map((chapter, index) => {
-          const isOpen = openChapters.includes(index);
-          return (
-            <div key={chapter.title} className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-xs">
-              <button
-                onClick={() => toggleChapter(index)}
-                className="flex w-full items-center justify-between gap-4 bg-slate-50/70 px-5 py-3.5 text-left hover:bg-blue-50/50 transition cursor-pointer"
-              >
-                <span className="flex items-center gap-3 text-sm font-bold text-slate-800">
-                  <span className="flex size-6 items-center justify-center rounded-lg bg-blue-100 text-xs text-blue-700 font-extrabold">
-                    {index + 1}
+        {chapters && chapters.length > 0 ? (
+          chapters.map((chapter, chapterIndex) => {
+            const isOpen = openChapters.includes(chapterIndex);
+            const lessonList = chapter.lessons || [];
+
+            return (
+              <div key={chapter.id || chapterIndex} className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-xs">
+                <button
+                  onClick={() => toggleChapter(chapterIndex)}
+                  className="flex w-full items-center justify-between gap-4 bg-slate-50/70 px-5 py-3.5 text-left hover:bg-blue-50/50 transition cursor-pointer"
+                >
+                  <span className="flex items-center gap-3 text-sm font-bold text-slate-800">
+                    <span className="flex size-6 items-center justify-center rounded-lg bg-blue-100 text-xs text-blue-700 font-extrabold">
+                      {chapterIndex + 1}
+                    </span>
+                    {chapter.title}
                   </span>
-                  {chapter.title}
-                </span>
-                <span className="text-xs text-slate-500 font-medium">{chapter.lessons.length} bài học</span>
-              </button>
+                  <span className="text-xs text-slate-500 font-medium">{lessonList.length} bài học</span>
+                </button>
 
-              {isOpen && (
-                <div className="divide-y divide-slate-100 border-t border-slate-100">
-                  {chapter.lessons.map((lesson) => (
-                    <div
-                      key={lesson.name}
-                      onClick={() => handleLessonClick(lesson)}
-                      className="flex cursor-pointer items-center justify-between gap-4 px-6 py-3 text-xs hover:bg-blue-50/30 transition group"
-                    >
-                      <span className="flex min-w-0 items-center gap-3 font-medium text-slate-700 group-hover:text-blue-600 transition">
-                        <span className="flex size-7 items-center justify-center rounded-full bg-blue-50 text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition">
-                          <Video className="size-3.5 shrink-0" />
-                        </span>
-                        <span className="truncate">{lesson.name}</span>
-                      </span>
-
-                      <span className="flex shrink-0 items-center gap-2.5 text-slate-500">
-                        {lesson.preview ? (
-                          <span className="rounded-full bg-blue-50 border border-blue-200 px-2.5 py-0.5 text-[10px] font-bold text-blue-600 shadow-2xs">
-                            Xem trước
+                {isOpen && (
+                  <div className="divide-y divide-slate-100 border-t border-slate-100">
+                    {lessonList.length > 0 ? (
+                      lessonList.map((lesson, lessonIndex) => {
+                        const LessonIcon = lesson.lessonType === "QUIZ"
+                          ? HelpCircle
+                          : ["ARTICLE", "DOCUMENT", "CODE_PRACTICE", "DOCUMENT_AND_CODING"].includes(lesson.lessonType ?? "")
+                            ? FileText
+                            : Video;
+                        return (
+                        <div
+                          key={lesson.id || lesson.name}
+                          onClick={() => handleLessonClick(lesson)}
+                          className="flex cursor-pointer items-center justify-between gap-4 px-6 py-3 text-xs hover:bg-blue-50/30 transition group"
+                        >
+                          <span className="flex min-w-0 items-center gap-3 font-medium text-slate-700 group-hover:text-blue-600 transition">
+                            <span className="flex size-7 items-center justify-center rounded-full bg-blue-50 text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition">
+                              <LessonIcon className="size-3.5 shrink-0" />
+                            </span>
+                            <span className="truncate">
+                              <strong className="font-bold text-slate-900 mr-1.5">
+                                {chapterIndex + 1}.{lessonIndex + 1}
+                              </strong>
+                              {lesson.name}
+                            </span>
                           </span>
-                        ) : (
-                          !isEnrolled && <Lock className="size-3.5 text-slate-400" />
-                        )}
-                        <span className="font-medium text-slate-400">{lesson.duration}</span>
-                        <Clock3 className="size-3.5 text-slate-300" />
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
+
+                          <span className="flex shrink-0 items-center gap-2.5 text-slate-500">
+                            {lesson.isPreview ? (
+                              <span className="rounded-full bg-blue-50 border border-blue-200 px-2.5 py-0.5 text-[10px] font-bold text-blue-600 shadow-2xs">
+                                Xem trước
+                              </span>
+                            ) : (
+                              !isEnrolled && <Lock className="size-3.5 text-slate-400" />
+                            )}
+                            <span className="font-medium text-slate-400">{lesson.duration || "10:00"}</span>
+                            <Clock3 className="size-3.5 text-slate-300" />
+                          </span>
+                        </div>
+                      )})
+                    ) : (
+                      <div className="px-6 py-3 text-xs italic text-slate-400">
+                        Chương này chưa có bài học nào.
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })
+        ) : (
+          <div className="rounded-2xl border border-dashed border-slate-200 p-8 text-center text-xs text-slate-500">
+            Khóa học hiện chưa được cập nhật danh mục chương và bài học.
+          </div>
+        )}
       </div>
     </section>
   );
@@ -576,19 +601,22 @@ function Curriculum({
 
 function EnrollmentCard({
   course,
+  chapters = [],
   isEnrolled,
   isEnrolling,
   onEnroll,
 }: {
   course: Required<ApiCourse>;
+  chapters?: ApiChapter[];
   isEnrolled: boolean;
   isEnrolling: boolean;
   onEnroll: () => void;
 }) {
-  const original = course.price * 2 || 800000;
-  const isFree = course.price === 0;
+  const isFree = (course.price || 0) === 0;
   const defaultImage = "https://images.unsplash.com/photo-1517694712202-14dd9538aa97?w=600";
-  const courseImage = course.thumbnail || defaultImage;
+  const courseImage = course.thumbnailUrl || course.thumbnail || defaultImage;
+
+  const totalLessons = chapters.reduce((sum, ch) => sum + (ch.lessons?.length || 0), 0);
 
   const buttonText = isEnrolling
     ? "Đang xử lý..."
@@ -624,13 +652,8 @@ function EnrollmentCard({
         <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Chi phí khóa học</p>
         <div className="mt-1 flex items-baseline gap-2">
           <span className="text-3xl font-extrabold text-blue-600">
-            {isFree ? "Miễn phí" : `${course.price.toLocaleString("vi-VN")}đ`}
+            {isFree ? "Miễn phí" : `${(course.price || 0).toLocaleString("vi-VN")}đ`}
           </span>
-          {!isFree && (
-            <span className="text-xs text-slate-400 line-through">
-              {original.toLocaleString("vi-VN")}đ
-            </span>
-          )}
         </div>
 
         <button
@@ -644,9 +667,8 @@ function EnrollmentCard({
       </div>
 
       <div className="mt-5 flex flex-col gap-3 border-t border-slate-100 pt-4 text-xs font-medium text-slate-600">
-        <span className="flex items-center gap-2.5"><Code2 className="size-4 text-blue-600 shrink-0" /> Trình độ cơ bản</span>
-        <span className="flex items-center gap-2.5"><BookOpen className="size-4 text-blue-600 shrink-0" /> Tổng số 36 bài học</span>
-        <span className="flex items-center gap-2.5"><Clock3 className="size-4 text-blue-600 shrink-0" /> Thời lượng 06 giờ 44 phút</span>
+        <span className="flex items-center gap-2.5"><Code2 className="size-4 text-blue-600 shrink-0" /> {({ BEGINNER: "Sơ cấp", INTERMEDIATE: "Trung cấp", ADVANCED: "Cao cấp", ALL_LEVELS: "Mọi trình độ" } as Record<string, string>)[String(course.level || "").toUpperCase()] || "Mọi trình độ"}</span>
+        <span className="flex items-center gap-2.5"><BookOpen className="size-4 text-blue-600 shrink-0" /> Tổng số {totalLessons} bài học</span>
         <span className="flex items-center gap-2.5"><Award className="size-4 text-blue-600 shrink-0" /> Chứng chỉ hoàn thành</span>
         <span className="flex items-center gap-2.5"><ShieldCheck className="size-4 text-blue-600 shrink-0" /> Học mọi lúc, mọi nơi</span>
       </div>
@@ -723,88 +745,6 @@ function RelatedCourses() {
   );
 }
 
-function ReviewModal({
-  isOpen,
-  onClose,
-  onSubmit,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  onSubmit: (review: { rating: number; title: string; text: string }) => void;
-}) {
-  const [rating, setRating] = useState(5);
-  const [title, setTitle] = useState("");
-  const [text, setText] = useState("");
-
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
-      <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl">
-        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-          <h3 className="text-base font-bold text-slate-900">Đánh giá khóa học</h3>
-          <button onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 cursor-pointer">
-            <X className="size-5" />
-          </button>
-        </div>
-
-        <div className="mt-4 flex flex-col gap-4">
-          <div>
-            <label className="text-xs font-bold text-slate-700">Chọn mức độ hài lòng *</label>
-            <div className="mt-1 flex gap-1 text-amber-400">
-              {[1, 2, 3, 4, 5].map((star) => (
-                <button
-                  key={star}
-                  onClick={() => setRating(star)}
-                  className="p-1 hover:scale-110 transition cursor-pointer"
-                >
-                  <Star className={`size-7 ${star <= rating ? "fill-current" : "text-slate-200"}`} />
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <label className="text-xs font-bold text-slate-700">Tiêu đề đánh giá (Tùy chọn)</label>
-            <input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Tóm tắt trải nghiệm của bạn..."
-              className="mt-1 h-9.5 w-full rounded-xl border border-slate-200 px-3 text-xs outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-            />
-          </div>
-
-          <div>
-            <label className="text-xs font-bold text-slate-700">Nội dung nhận xét</label>
-            <textarea
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              rows={4}
-              placeholder="Chia sẻ suy nghĩ của bạn về lộ trình khóa học này..."
-              className="mt-1 w-full rounded-xl border border-slate-200 p-3 text-xs outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-            />
-          </div>
-        </div>
-
-        <div className="mt-6 flex justify-end gap-2 border-t border-slate-100 pt-4">
-          <button onClick={onClose} className="rounded-xl px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 cursor-pointer">
-            Hủy
-          </button>
-          <button
-            onClick={() => {
-              onSubmit({ rating, title, text });
-              onClose();
-            }}
-            className="rounded-xl bg-orange-600 px-5 py-2 text-xs font-bold text-white shadow-md shadow-orange-200 hover:bg-orange-700 transition cursor-pointer"
-          >
-            Đăng đánh giá
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function Reviews({
   onOpenReviewModal,
 }: {
@@ -815,7 +755,7 @@ function Reviews({
       <div className="flex items-center justify-between border-b border-slate-100 pb-4">
         <div>
           <h2 className="text-xl font-bold text-slate-900">Đánh giá của học viên</h2>
-          <p className="mt-0.5 text-xs text-slate-500">67% đánh giá đã được xác minh học viên</p>
+          <p className="mt-0.5 text-xs text-slate-500">100% đánh giá đã được xác minh học viên</p>
         </div>
         <button
           onClick={onOpenReviewModal}
@@ -829,7 +769,7 @@ function Reviews({
         <div className="flex flex-col items-center justify-center rounded-2xl bg-amber-50/60 p-4 border border-amber-100">
           <p className="text-4xl font-black text-slate-900">5.0</p>
           <div className="mt-1"><Stars /></div>
-          <p className="mt-1 text-[11px] font-semibold text-amber-700">3 đánh giá</p>
+          <p className="mt-1 text-[11px] font-semibold text-amber-700">2 đánh giá</p>
         </div>
 
         <div className="flex flex-col gap-1.5 justify-center">
@@ -905,6 +845,9 @@ function ToastNotification({
 
 export default function CourseDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
+  const searchParams = useSearchParams();
+  const returnUrl = `/courses/${resolvedParams.id}${searchParams.toString() ? `?${searchParams.toString()}` : ""}`;
+  const authHref = authUrlFor(returnUrl);
 
   const [collapsed, setCollapsed] = useState(false);
   const [activeTab, setActiveTab] = useState<string | null>(null);
@@ -912,7 +855,6 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
   const [user, setUser] = useState<any>(null);
   const [isEnrolled, setIsEnrolled] = useState(false);
   const [isEnrolling, setIsEnrolling] = useState(false);
-  const [reviewModalOpen, setReviewModalOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
   const router = useRouter();
@@ -924,10 +866,9 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
 
   useEffect(() => {
     const token = localStorage.getItem("accessToken");
-    if (token) {
+    if (token && token !== "null" && token !== "undefined") {
       setIsLoggedIn(true);
 
-      // Lấy thông tin user
       fetch("http://localhost:8080/api/users/me", {
         headers: { Authorization: `Bearer ${token}` },
       })
@@ -937,7 +878,6 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
         })
         .catch(() => {});
 
-      // Kiểm tra trạng thái đã đăng ký khóa học này chưa
       fetch(`http://localhost:8080/api/enrollments/check/${resolvedParams.id}`, {
         headers: { Authorization: `Bearer ${token}` },
       })
@@ -966,14 +906,24 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
   );
 
   const course = { ...fallbackCourse, ...(data ?? {}) };
+  const courseChapters = course.chapters || [];
 
-  // NÚT ĐĂNG KÝ HỌC NGAY - ĐÃ SỬA LỖI JSON RỖNG
+  // TÁCH CHUỖI OUTCOMES THÀNH MẢNG
+  const outcomesList = course.outcomes
+    ? course.outcomes.split("\n").filter((item) => item.trim().length > 0)
+    : [];
+
+  // TÁCH CHUỖI REQUIREMENTS THÀNH MẢNG
+  const requirementsList = course.requirements
+    ? course.requirements.split("\n").filter((item) => item.trim().length > 0)
+    : [];
+
   const handleEnroll = async () => {
     const token = localStorage.getItem("accessToken");
 
     if (!token) {
       showToast("Vui lòng đăng nhập để đăng ký khóa học!", "error");
-      router.push("/auth");
+      router.push(authHref);
       return;
     }
 
@@ -985,6 +935,26 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
     setIsEnrolling(true);
 
     try {
+      const coursePrice = Number(course.price) || 0;
+      if (coursePrice > 0) {
+        const paymentResponse = await fetch(
+          `http://localhost:8080/api/payments/vnpay/courses/${resolvedParams.id}`,
+          {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}` },
+          }
+        );
+        const paymentData = await paymentResponse.json();
+        if (!paymentResponse.ok) {
+          throw new Error(paymentData.message || "Không thể khởi tạo thanh toán VNPay.");
+        }
+        if (typeof paymentData.paymentUrl !== "string" || !paymentData.paymentUrl) {
+          throw new Error("Máy chủ không trả về đường dẫn thanh toán hợp lệ.");
+        }
+        window.location.assign(paymentData.paymentUrl);
+        return;
+      }
+
       const res = await fetch(`http://localhost:8080/api/enrollments/${resolvedParams.id}`, {
         method: "POST",
         headers: {
@@ -993,7 +963,6 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
         },
       });
 
-      // 1. Nếu thành công (Status 200/201), chuyển hướng ngay bất kể Server có trả về body hay không
       if (res.ok) {
         showToast("Đăng ký khóa học thành công!", "success");
         setIsEnrolled(true);
@@ -1001,7 +970,6 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
         return;
       }
 
-      // 2. Trường hợp thất bại, đọc text trước để tránh đâm crash do JSON rỗng
       const text = await res.text();
       let errorMessage = "Đăng ký thất bại!";
 
@@ -1015,7 +983,6 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
           }
           if (data.message) errorMessage = data.message;
         } catch {
-          // Nếu không parse được JSON thì dùng nguyên chuỗi text
           errorMessage = text;
         }
       }
@@ -1023,23 +990,10 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
       showToast(errorMessage, "error");
     } catch (error) {
       console.error("Lỗi đăng ký:", error);
-      showToast("Có lỗi xảy ra khi kết nối máy chủ!", "error");
+      showToast(error instanceof Error ? error.message : "Có lỗi xảy ra khi kết nối máy chủ!", "error");
     } finally {
       setIsEnrolling(false);
     }
-  };
-
-  const handleOpenReviewModal = () => {
-    if (!isLoggedIn) {
-      showToast("Vui lòng đăng nhập để viết đánh giá!", "error");
-      router.push("/auth");
-      return;
-    }
-    if (!isEnrolled) {
-      showToast("Bạn cần Bắt đầu / Đăng ký khóa học để viết đánh giá!", "error");
-      return;
-    }
-    setReviewModalOpen(true);
   };
 
   return (
@@ -1049,6 +1003,7 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
         onToggle={() => setCollapsed(!collapsed)}
         isLoggedIn={isLoggedIn}
         user={user}
+        authHref={authHref}
         onLogout={handleLogout}
       />
 
@@ -1083,69 +1038,68 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
                   <span className="flex items-center gap-1.5 bg-white px-3 py-1.5 rounded-xl border border-slate-200/60 shadow-2xs">
                     <Stars />
                     <strong className="text-slate-800 font-bold">5.0</strong>
-                    <span className="text-slate-400">(3 đánh giá)</span>
                   </span>
                   <span className="flex items-center gap-1.5 font-bold text-slate-700 bg-white px-3 py-1.5 rounded-xl border border-slate-200/60 shadow-2xs">
-                    <Users className="size-4 text-blue-600" /> 48.742 học viên
+                    <Users className="size-4 text-blue-600" /> Học viên EduFlow
                   </span>
                 </div>
               </div>
 
-              {/* Khối Bạn sẽ học được gì */}
-              <div className="mt-8 rounded-2xl bg-blue-50/60 border border-blue-100 p-6">
-                <h2 className="text-lg font-bold text-[#17305f] flex items-center gap-2">
-                  <Check className="size-5 text-blue-600" /> Bạn sẽ học được gì?
-                </h2>
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  {outcomes.map((item) => (
-                    <div key={item} className="flex items-start gap-2.5 text-xs text-slate-700 font-semibold">
-                      <span className="flex size-4 items-center justify-center rounded-full bg-blue-600 text-white shrink-0 mt-0.5">
-                        <Check className="size-2.5" />
-                      </span>
-                      {item}
-                    </div>
-                  ))}
+              {/* 🎯 KHỐI "BẠN SẼ HỌC ĐƯỢC GÌ?" (ĐỌC TỪ CỘT OUTCOMES) */}
+              {outcomesList.length > 0 && (
+                <div className="mt-8 rounded-2xl bg-blue-50/60 border border-blue-100 p-6">
+                  <h2 className="text-xl font-bold text-[#17305f]">Bạn sẽ học được gì?</h2>
+                  <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                    {outcomesList.map((item, idx) => (
+                      <div key={idx} className="flex items-start gap-3 text-xs font-semibold text-slate-700">
+                        <span className="flex size-5 items-center justify-center rounded-full bg-blue-600 text-white shrink-0 mt-0.5">
+                          <Check className="size-3" />
+                        </span>
+                        <span className="leading-relaxed">{item}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
 
-              <div className="mt-10">
+              {/* Dữ liệu Chương & Bài học thật từ PostgreSQL */}
+              <div id="curriculum" className="mt-10 scroll-mt-24">
                 <Curriculum
                   courseId={course.id || resolvedParams.id}
+                  chapters={courseChapters}
+                  isLoggedIn={isLoggedIn}
                   isEnrolled={isEnrolled}
+                  authHref={authHref}
                   onEnroll={handleEnroll}
+                  showToast={showToast}
                 />
               </div>
 
-              {/* Khối Yêu cầu & Mô tả khóa học */}
-              <div className="mt-10 flex flex-col gap-6">
-                <div className="rounded-2xl bg-slate-50/80 border border-slate-200/80 p-6">
-                  <h2 className="text-base font-bold text-slate-900 flex items-center gap-2.5">
+              {/* 🎯 KHỐI "YÊU CẦU" (ĐỌC TỪ CỘT REQUIREMENTS) */}
+              {requirementsList.length > 0 && (
+                <div className="mt-10 rounded-2xl bg-slate-50/80 border border-slate-200/80 p-6">
+                  <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2.5">
                     <span className="flex size-8 items-center justify-center rounded-xl bg-amber-100 text-amber-600">
-                      <HelpCircle className="size-4" />
-                    </span>
-                    Yêu cầu khóa học
-                  </h2>
-                  <p className="mt-3 text-xs leading-relaxed text-slate-600">
-                    Bạn chỉ cần có máy tính kết nối Internet và tinh thần ham học hỏi. Không yêu cầu kinh nghiệm lập trình trước đó.
-                  </p>
-                </div>
-
-                <div className="rounded-2xl bg-slate-50/80 border border-slate-200/80 p-6">
-                  <h2 className="text-base font-bold text-slate-900 flex items-center gap-2.5">
-                    <span className="flex size-8 items-center justify-center rounded-xl bg-blue-100 text-blue-600">
                       <FileText className="size-4" />
                     </span>
-                    Mô tả khóa học
+                    Yêu cầu
                   </h2>
-                  <p className="mt-3 text-xs leading-relaxed text-slate-600">
-                    Khóa học cung cấp lộ trình thực tế, đi từ nền tảng đến xây dựng giao diện responsive hoàn chỉnh với các bài tập trực quan.
-                  </p>
+                  <div className="mt-4 flex flex-col gap-3">
+                    {requirementsList.map((item, idx) => (
+                      <div key={idx} className="flex items-start gap-3 text-xs font-semibold text-slate-700">
+                        <span className="flex size-5 items-center justify-center rounded-full bg-amber-500 text-white shrink-0 mt-0.5">
+                          <Check className="size-3" />
+                        </span>
+                        <span className="leading-relaxed">{item}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Đánh giá của học viên */}
               <div className="mt-10">
-                <Reviews onOpenReviewModal={handleOpenReviewModal} />
+                <Reviews onOpenReviewModal={() => {}} />
               </div>
 
               {/* Khóa học liên quan */}
@@ -1155,20 +1109,13 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
             {/* Cột Bên phải */}
             <EnrollmentCard
               course={course}
+              chapters={courseChapters}
               isEnrolled={isEnrolled}
               isEnrolling={isEnrolling}
               onEnroll={handleEnroll}
             />
           </div>
         </div>
-
-        <ReviewModal
-          isOpen={reviewModalOpen}
-          onClose={() => setReviewModalOpen(false)}
-          onSubmit={(newReview) => {
-            showToast("Cảm ơn bạn đã đăng đánh giá cho khóa học!");
-          }}
-        />
 
         <ToastNotification toast={toast} onClose={() => setToast(null)} />
 

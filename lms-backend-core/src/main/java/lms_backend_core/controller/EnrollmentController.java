@@ -8,10 +8,12 @@ import lms_backend_core.repository.EnrollmentRepository;
 import lms_backend_core.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
+import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 @RequestMapping("/api/enrollments")
@@ -30,11 +32,19 @@ public class EnrollmentController {
         }
 
         String username = authentication.getName();
-        User student = userRepository.findByUsername(username)
+        User student = userRepository.findByEmail(username)
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy học viên!"));
 
         Course course = courseRepository.findById(courseId)
-                .orElseThrow(() -> new RuntimeException("Không tìm thấy khóa học!"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Course not found."));
+        if (!Boolean.TRUE.equals(course.getIsPublished())) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Course not found.");
+        }
+
+        if (course.getPrice() != null && course.getPrice().signum() > 0) {
+            return ResponseEntity.status(402).body(Map.of(
+                    "message", "Khóa học cần thanh toán trước khi đăng ký. Chức năng thanh toán chưa được bật."));
+        }
 
         // Kiểm tra xem đã đăng ký khóa học này chưa
         if (enrollmentRepository.existsByStudentIdAndCourseId(student.getId(), courseId)) {
@@ -63,7 +73,7 @@ public class EnrollmentController {
         }
 
         String username = authentication.getName();
-        User student = userRepository.findByUsername(username).orElse(null);
+        User student = userRepository.findByEmail(username).orElse(null);
 
         if (student == null) {
             return ResponseEntity.ok(Map.of("isEnrolled", false));

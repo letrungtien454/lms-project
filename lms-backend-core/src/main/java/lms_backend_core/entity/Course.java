@@ -3,7 +3,8 @@ package lms_backend_core.entity;
 import jakarta.persistence.*;
 import lombok.*;
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.util.List;
 
 @Entity
 @Table(name = "courses")
@@ -32,29 +33,45 @@ public class Course {
     @Column(columnDefinition = "TEXT")
     private String description;
 
-    @Column(precision = 12, scale = 0)
+    @Column(columnDefinition = "TEXT")
+    private String outcomes;
+
+    @Column(columnDefinition = "TEXT")
+    private String requirements;
+
+    @Builder.Default
+    @Column(precision = 10, scale = 2)
     private BigDecimal price = BigDecimal.ZERO;
 
-    @Column(name = "thumbnail_url")
+    @Enumerated(EnumType.STRING)
+    @Builder.Default
+    @Column(length = 20, nullable = false)
+    private CourseLevel level = CourseLevel.ALL_LEVELS;
+
+    @Column(name = "thumbnail_url", columnDefinition = "TEXT")
     private String thumbnailUrl;
 
+    @Builder.Default
     @Column(name = "is_published")
     private Boolean isPublished = false;
 
     @Column(name = "created_at")
-    private LocalDateTime createdAt;
+    private OffsetDateTime createdAt;
 
     @Column(name = "updated_at")
-    private LocalDateTime updatedAt;
+    private OffsetDateTime updatedAt;
+
+    @OneToMany(mappedBy = "course", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<Chapter> chapters;
 
     @PrePersist
     protected void onCreate() {
-        this.createdAt = LocalDateTime.now();
-        this.updatedAt = LocalDateTime.now();
+        this.createdAt = OffsetDateTime.now();
+        this.updatedAt = OffsetDateTime.now();
     }
 
     @PreUpdate
     protected void onUpdate() {
-        this.updatedAt = LocalDateTime.now();
+        this.updatedAt = OffsetDateTime.now();
     }
 }

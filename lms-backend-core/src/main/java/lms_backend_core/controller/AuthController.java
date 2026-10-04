@@ -1,6 +1,7 @@
 package lms_backend_core.controller;
 
 import lms_backend_core.dto.AuthResponse;
+import lms_backend_core.dto.GoogleAuthRequest;
 import lms_backend_core.dto.LoginRequest;
 import lms_backend_core.dto.RegisterRequest;
 import lms_backend_core.service.AuthService;
@@ -29,5 +30,10 @@ public class AuthController {
     public ResponseEntity<?> login(@Valid @RequestBody LoginRequest request) {
         AuthResponse response = authService.login(request);
         return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/google")
+    public ResponseEntity<AuthResponse> loginWithGoogle(@Valid @RequestBody GoogleAuthRequest request) {
+        return ResponseEntity.ok(authService.loginWithGoogle(request.credential()));
     }
 }
