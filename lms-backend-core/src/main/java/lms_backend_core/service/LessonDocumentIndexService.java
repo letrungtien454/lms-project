@@ -61,7 +61,7 @@ public class LessonDocumentIndexService {
         List<String> chunks = DocumentTextChunker.split(extractText(file));
         if (chunks.isEmpty()) {
             throw new ResponseStatusException(
-                    HttpStatus.UNPROCESSABLE_ENTITY,
+                    HttpStatus.UNPROCESSABLE_CONTENT,
                     "PDF contains no selectable text: " + attachment.getFileName());
         }
 
@@ -91,7 +91,7 @@ public class LessonDocumentIndexService {
             return new PDFTextStripper().getText(document);
         } catch (IOException exception) {
             throw new ResponseStatusException(
-                    HttpStatus.UNPROCESSABLE_ENTITY,
+                    HttpStatus.UNPROCESSABLE_CONTENT,
                     "Unable to extract text from the PDF attachment.");
         }
     }

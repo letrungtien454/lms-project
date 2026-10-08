@@ -44,6 +44,7 @@ import {
   Download,
   Play,
   RotateCcw,
+  RotateCw,
   ThumbsUp,
   Layout,
   Globe2,
@@ -168,13 +169,17 @@ function getFirstNameInitial(fullName?: string, username?: string): string {
   return parts[parts.length - 1].charAt(0).toUpperCase();
 }
 
-function Logo() {
+function Logo({ variant = "default" }: { variant?: "default" | "white" }) {
   return (
     <a href="/" className="flex items-center gap-2.5">
       <span className="flex size-9 items-center justify-center rounded-xl bg-blue-600 text-white shadow-md shadow-blue-200">
         <GraduationCap className="size-5" />
       </span>
-      <span className="text-xl font-bold tracking-tight text-[#17305f]">
+      <span
+        className={`text-xl font-bold tracking-tight ${
+          variant === "white" ? "text-white" : "text-[#17305f]"
+        }`}
+      >
         EduFlow
       </span>
     </a>
@@ -461,7 +466,7 @@ function LegacyCodePracticeWorkspace() {
   };
 
   return (
-    <div className="flex min-h-[520px] flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 text-white shadow-2xl">
+    <div className="flex min-h-130 flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 text-white shadow-2xl">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 bg-slate-900 px-3">
         <div className="flex flex-wrap">
           {(["html", "css", "javascript", "java"] as const).map((language) => (
@@ -492,7 +497,7 @@ function LegacyCodePracticeWorkspace() {
         )}
       </div>
 
-      <div className="min-h-[240px] flex-1 p-3">
+      <div className="min-h-60 flex-1 p-3">
         <div className="mb-2 flex items-center justify-between text-[10px] font-mono text-slate-500">
           <span>{isJava ? "Main.java" : `index.${activeTab === "javascript" ? "js" : activeTab}`}</span>
           <span>UTF-8</span>
@@ -502,7 +507,7 @@ function LegacyCodePracticeWorkspace() {
           spellCheck={false}
           value={activeCode}
           onChange={(event) => setActiveCode(event.target.value)}
-          className="h-[250px] w-full resize-y rounded-lg bg-slate-950 p-3 font-mono text-xs leading-6 text-slate-100 outline-none focus:ring-1 focus:ring-blue-500"
+          className="h-62.5 w-full resize-y rounded-lg bg-slate-950 p-3 font-mono text-xs leading-6 text-slate-100 outline-none focus:ring-1 focus:ring-blue-500"
           placeholder={`Nhập mã ${activeTab}...`}
         />
       </div>
@@ -717,7 +722,7 @@ function LessonDiscussion({ lessonId, isLoggedIn, authHref }: { lessonId: string
                     <span className="text-xs font-bold text-slate-800">{comment.authorName}</span>
                     <time className="text-[10px] text-slate-400">{formatDate(comment.createdAt)}</time>
                   </div>
-                  <p className="mt-2 whitespace-pre-wrap break-words text-xs leading-5 text-slate-700">{comment.content}</p>
+                  <p className="mt-2 whitespace-pre-wrap wrap-break-word text-xs leading-5 text-slate-700">{comment.content}</p>
                   <div className="mt-3 flex flex-wrap items-center gap-4">
                     <button
                       type="button"
@@ -775,7 +780,7 @@ function LessonDiscussion({ lessonId, isLoggedIn, authHref }: { lessonId: string
                               <span className="text-[11px] font-bold text-slate-800">{reply.authorName}</span>
                               <time className="text-[10px] text-slate-400">{formatDate(reply.createdAt)}</time>
                             </div>
-                            <p className="mt-1 whitespace-pre-wrap break-words text-xs leading-5 text-slate-600">{reply.content}</p>
+                            <p className="mt-1 whitespace-pre-wrap wrap-break-word text-xs leading-5 text-slate-600">{reply.content}</p>
                             <button
                               type="button"
                               onClick={() => void toggleHelpful(reply)}
@@ -882,6 +887,8 @@ export default function LessonPage({ params }: { params: Promise<{ courseId: str
   const [videoCurrentTime, setVideoCurrentTime] = useState(0);
   const [isVideoPlaying, setIsVideoPlaying] = useState(false);
   const [isPlayerFullscreen, setIsPlayerFullscreen] = useState(false);
+  const [videoPlaybackRate, setVideoPlaybackRate] = useState(1);
+  const [hoveredProgressTime, setHoveredProgressTime] = useState<number | null>(null);
   const [collapsedChapters, setCollapsedChapters] = useState<string[]>([]);
 
   const [aiMessages, setAiMessages] = useState<{ sender: "ai" | "user"; text: string }[]>([]);
@@ -894,6 +901,7 @@ export default function LessonPage({ params }: { params: Promise<{ courseId: str
   }, [activeLesson]);
 
   const playerRef = useRef<any>(null);
+  const allowVideoPlaybackRef = useRef(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const playerShellRef = useRef<HTMLDivElement | null>(null);
   const progressIntervalRef = useRef<any>(null);
@@ -941,15 +949,31 @@ export default function LessonPage({ params }: { params: Promise<{ courseId: str
 
   useEffect(() => {
     if (!course || lessons.length === 0) return;
-    const matchingLesson = lessons.find((l) => String(l.id) === requestedLesson && (l.isPreview || isEnrolled));
+
+    const savedLessonId =
+      typeof window !== "undefined"
+        ? localStorage.getItem(`eduflow:lastLesson:${courseId}`)
+        : null;
+
+    const requested = requestedLesson || savedLessonId;
+    const matchingLesson = lessons.find(
+      (l) => String(l.id) === requested && (l.isPreview || isEnrolled)
+    );
     const currentLesson = lessons.find((l) => String(l.id) === activeLesson);
-    const accessible = currentLesson && (currentLesson.isPreview || isEnrolled) ? currentLesson : undefined;
-    const nextLesson = matchingLesson ?? accessible ?? lessons.find((l) => l.isPreview) ?? lessons[0];
+    const accessible =
+      currentLesson && (currentLesson.isPreview || isEnrolled)
+        ? currentLesson
+        : undefined;
+    const nextLesson =
+      matchingLesson ??
+      accessible ??
+      lessons.find((l) => l.isPreview) ??
+      lessons[0];
 
     if (nextLesson && String(nextLesson.id) !== activeLesson) {
       setActiveLesson(String(nextLesson.id));
     }
-  }, [course, requestedLesson, activeLesson, lessons, isEnrolled]);
+  }, [course, requestedLesson, activeLesson, lessons, isEnrolled, courseId]);
 
   // Tải Tài liệu & Quiz
   useEffect(() => {
@@ -1050,6 +1074,9 @@ export default function LessonPage({ params }: { params: Promise<{ courseId: str
     lastProgressSaveAtRef.current = 0;
     setVideoDuration(activeLessonData?.durationSeconds ?? 0);
     setVideoCurrentTime(0);
+    setVideoPlaybackRate(1);
+    setHoveredProgressTime(null);
+    allowVideoPlaybackRef.current = false;
     setIsVideoPlaying(false);
     setIsVideoReady(!youtubeId && !mp4Url);
     setActiveInteractiveQuestion(null);
@@ -1183,13 +1210,42 @@ export default function LessonPage({ params }: { params: Promise<{ courseId: str
     else if (videoRef.current) videoRef.current.currentTime = targetTime;
   };
 
+  const seekVideoBy = (seconds: number) => {
+    const currentTime = youtubeId
+      ? playerRef.current?.getCurrentTime?.() ?? videoCurrentTime
+      : videoRef.current?.currentTime ?? videoCurrentTime;
+    seekVideoTo(currentTime + seconds);
+  };
+
+  const handleProgressMouseMove = (event: React.MouseEvent<HTMLInputElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (!rect.width) return;
+    const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+    const seekLimit = getForwardSeekLimit();
+    const maxTime = Number.isFinite(seekLimit)
+      ? Math.min(videoDuration, seekLimit)
+      : videoDuration;
+    setHoveredProgressTime(ratio * Math.max(0, maxTime));
+  };
+
+  const changeVideoPlaybackRate = (rate: number) => {
+    setVideoPlaybackRate(rate);
+    if (youtubeId) {
+      playerRef.current?.setPlaybackRate?.(rate);
+    } else if (videoRef.current) {
+      videoRef.current.playbackRate = rate;
+    }
+  };
+
   const toggleVideoPlayback = () => {
     if (isVideoPlaying) {
+      allowVideoPlaybackRef.current = false;
       if (youtubeId) playerRef.current?.pauseVideo();
       else videoRef.current?.pause();
       setIsVideoPlaying(false);
       return;
     }
+    allowVideoPlaybackRef.current = true;
     if (youtubeId) playerRef.current?.playVideo();
     else void videoRef.current?.play();
     setIsVideoPlaying(true);
@@ -1274,6 +1330,7 @@ export default function LessonPage({ params }: { params: Promise<{ courseId: str
     activeInteractiveQuestionRef.current = null;
     setActiveInteractiveQuestion(null);
     setInteractiveAnswerFeedback(null);
+    allowVideoPlaybackRef.current = true;
     if (youtubeId) playerRef.current?.playVideo();
     else void videoRef.current?.play();
   };
@@ -1291,6 +1348,7 @@ export default function LessonPage({ params }: { params: Promise<{ courseId: str
 
   const closeInteractiveQuestionReview = () => {
     setReviewInteractiveQuestion(null);
+    allowVideoPlaybackRef.current = true;
     if (youtubeId) playerRef.current?.playVideo();
     else void videoRef.current?.play();
   };
@@ -1298,14 +1356,28 @@ export default function LessonPage({ params }: { params: Promise<{ courseId: str
   // YouTube Ready & Interactive Video Quiz Listener
   const handleYouTubeReady = (event: any) => {
     playerRef.current = event.target;
+    // Luôn mở video ở trạng thái dừng; chỉ phát khi người dùng bấm Play.
+    allowVideoPlaybackRef.current = false;
+    event.target.pauseVideo();
+    setIsVideoPlaying(false);
     setIsVideoReady(true);
     setVideoDuration(event.target.getDuration() || activeLessonData?.durationSeconds || 0);
+    event.target.setPlaybackRate?.(1);
     const savedTime = lessonProgressRef.current[activeLesson]?.lastPlaybackTime || 0;
     const restoreTime = interactiveQuestionsLoadedRef.current
       ? Math.min(savedTime, getForwardSeekLimit())
       : 0;
     lastAcceptedPlaybackTimeRef.current = restoreTime;
-    if (restoreTime > 0) event.target.seekTo(restoreTime, true);
+
+    // Nạp video ở trạng thái CUED thay vì LOAD rồi mới pause.
+    // Cách này tránh YouTube phát ra một đoạn ngắn trước khi onStateChange kịp chặn.
+    event.target.cueVideoById({
+      videoId: youtubeId,
+      startSeconds: restoreTime,
+    });
+    event.target.pauseVideo();
+    setIsVideoPlaying(false);
+
     lastYoutubeSampledAtRef.current = Date.now();
     if (youtubeSeekMonitorRef.current) clearInterval(youtubeSeekMonitorRef.current);
     youtubeSeekMonitorRef.current = setInterval(() => {
@@ -1337,11 +1409,21 @@ export default function LessonPage({ params }: { params: Promise<{ courseId: str
   };
 
   const handleYouTubeStateChange = (event: any) => {
-    setIsVideoPlaying(event.data === 1);
-    if (event.data === 0 && playerRef.current) {
+    // Trạng thái 1 = PLAYING
+    if (event.data === 1) {
+      // Tự động bật cờ phát video khi người dùng bấm trực tiếp nút Play ở giữa iframe
+      allowVideoPlaybackRef.current = true;
+      setIsVideoPlaying(true);
+    } else if (event.data === 2) {
+      // Trạng thái 2 = PAUSED
+      setIsVideoPlaying(false);
+      if (playerRef.current) {
+        void persistProgress(false, playerRef.current.getCurrentTime());
+      }
+    } else if (event.data === 0 && playerRef.current) {
+      // Trạng thái 0 = ENDED
+      setIsVideoPlaying(false);
       void persistProgress(true, playerRef.current.getCurrentTime());
-    } else if (event.data === 2 && playerRef.current) {
-      void persistProgress(false, playerRef.current.getCurrentTime());
     }
   };
 
@@ -1435,7 +1517,9 @@ export default function LessonPage({ params }: { params: Promise<{ courseId: str
         setIsVideoReady(false);
         playerRef.current = null;
       }
-      setActiveLesson(String(lesson.id));
+      const lessonId = String(lesson.id);
+      setActiveLesson(lessonId);
+      localStorage.setItem(`eduflow:lastLesson:${courseId}`, lessonId);
       router.replace(`/learning/${courseId}?lesson=${lesson.id}`, { scroll: false });
     } else {
       setLockModalOpen(true);
@@ -1539,7 +1623,7 @@ export default function LessonPage({ params }: { params: Promise<{ courseId: str
 
           <div className={`grid gap-6 ${isLearningPathOpen ? "lg:grid-cols-[288px_minmax(0,1fr)]" : "grid-cols-1"}`}>
             {isLearningPathOpen && <aside className="h-fit overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm lg:sticky lg:top-24 lg:max-h-[calc(100vh-7rem)]">
-                <div className="border-b border-slate-100 bg-gradient-to-br from-blue-50 to-white p-4">
+                <div className="border-b border-slate-100 bg-linear-to-br from-blue-50 to-white p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-blue-600">Lộ trình học</p>
@@ -1673,7 +1757,7 @@ export default function LessonPage({ params }: { params: Promise<{ courseId: str
                   <div
                     ref={playerShellRef}
                     className={isPlayerFullscreen
-                      ? "fixed inset-0 z-[100] flex flex-col justify-center gap-4 overflow-auto bg-black p-4"
+                      ? "fixed inset-0 z-100 flex flex-col justify-center gap-4 overflow-auto bg-black p-4"
                       : "flex flex-col gap-4"}
                   >
 
@@ -1696,10 +1780,17 @@ export default function LessonPage({ params }: { params: Promise<{ courseId: str
                         src={mp4Url}
                         playsInline
                         className="size-full object-contain"
-                        onLoadedData={() => setIsVideoReady(true)}
+                        onLoadedData={(event) => {
+                          event.currentTarget.pause();
+                          setIsVideoPlaying(false);
+                          setIsVideoReady(true);
+                        }}
                         onLoadedMetadata={(event) => {
+                          event.currentTarget.pause();
+                          setIsVideoPlaying(false);
                           setIsVideoReady(true);
                           setVideoDuration(event.currentTarget.duration);
+                          event.currentTarget.playbackRate = 1;
                           const savedTime = lessonProgressRef.current[activeLesson]?.lastPlaybackTime || 0;
                           const restoreTime = interactiveQuestionsLoadedRef.current
                             ? Math.min(savedTime, getForwardSeekLimit())
@@ -1742,7 +1833,7 @@ export default function LessonPage({ params }: { params: Promise<{ courseId: str
                             title={question.answeredCorrectly ? "Bạn đã trả lời đúng câu hỏi này ở lần học trước" : undefined}
                             aria-label={`Đến câu hỏi tại phút ${Math.floor(question.videoTimestamp / 60)} giây ${question.videoTimestamp % 60}`}
                             onClick={() => openInteractiveQuestionReview(question)}
-                            className="pointer-events-auto absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-amber-400 shadow [cursor:pointer]"
+                            className="pointer-events-auto absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-amber-400 shadow cursor-pointer"
                             style={{ left: `${Math.min(100, Math.max(0, question.videoTimestamp / videoDuration * 100))}%` }}
                           />
                         ))}
@@ -1841,30 +1932,80 @@ export default function LessonPage({ params }: { params: Promise<{ courseId: str
                       <span className="w-11 shrink-0 text-right text-[11px] tabular-nums text-slate-500">
                         {formatVideoTime(videoCurrentTime)}
                       </span>
-                      <input
-                        type="range"
-                        min={0}
-                        max={Math.max(
-                          0,
-                          Number.isFinite(getForwardSeekLimit())
-                            ? Math.min(videoDuration, getForwardSeekLimit())
-                            : videoDuration
+                      <div
+                        className="relative min-w-0 flex-1"
+                        onMouseLeave={() => setHoveredProgressTime(null)}
+                      >
+                        {hoveredProgressTime !== null && videoDuration > 0 && (
+                          <span
+                            className="pointer-events-none absolute bottom-4 z-20 -translate-x-1/2 rounded-md bg-slate-900 px-2 py-1 text-[10px] font-semibold tabular-nums text-white shadow-lg"
+                            style={{
+                              left: `${Math.min(100, Math.max(0, hoveredProgressTime / Math.max(1, Number.isFinite(getForwardSeekLimit()) ? Math.min(videoDuration, getForwardSeekLimit()) : videoDuration) * 100))}%`,
+                            }}
+                          >
+                            {formatVideoTime(hoveredProgressTime)}
+                          </span>
                         )}
-                        step={0.25}
-                        value={Math.min(videoCurrentTime, Math.max(
-                          0,
-                          Number.isFinite(getForwardSeekLimit())
-                            ? Math.min(videoDuration, getForwardSeekLimit())
-                            : videoDuration
-                        ))}
-                        onChange={(event) => seekVideoTo(Number(event.currentTarget.value))}
-                        disabled={!isVideoReady || !videoDuration || Boolean(activeInteractiveQuestion) || Boolean(reviewInteractiveQuestion)}
-                        aria-label="Tua video trong phạm vi đã mở khóa"
-                        className="h-2 min-w-0 flex-1 cursor-pointer accent-blue-600 disabled:cursor-not-allowed"
-                      />
+                        <input
+                          type="range"
+                          min={0}
+                          max={Math.max(
+                            0,
+                            Number.isFinite(getForwardSeekLimit())
+                              ? Math.min(videoDuration, getForwardSeekLimit())
+                              : videoDuration
+                          )}
+                          step={0.25}
+                          value={Math.min(videoCurrentTime, Math.max(
+                            0,
+                            Number.isFinite(getForwardSeekLimit())
+                              ? Math.min(videoDuration, getForwardSeekLimit())
+                              : videoDuration
+                          ))}
+                          onChange={(event) => seekVideoTo(Number(event.currentTarget.value))}
+                          onMouseMove={handleProgressMouseMove}
+                          disabled={!isVideoReady || !videoDuration || Boolean(activeInteractiveQuestion) || Boolean(reviewInteractiveQuestion)}
+                          aria-label="Tua video trong phạm vi đã mở khóa"
+                          className="h-2 w-full cursor-pointer accent-blue-600 disabled:cursor-not-allowed"
+                        />
+                      </div>
                       <span className="w-11 shrink-0 text-[11px] tabular-nums text-slate-500">
                         {formatVideoTime(videoDuration)}
                       </span>
+                      <button
+                        type="button"
+                        onClick={() => seekVideoBy(-5)}
+                        disabled={!isVideoReady || !videoDuration || Boolean(activeInteractiveQuestion) || Boolean(reviewInteractiveQuestion)}
+                        aria-label="Tua lùi 5 giây"
+                        title="Tua lùi 5 giây"
+                        className="relative flex size-9 shrink-0 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        <RotateCcw className="size-4" />
+                        <span className="pointer-events-none absolute text-[8px] font-bold">5</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => seekVideoBy(5)}
+                        disabled={!isVideoReady || !videoDuration || Boolean(activeInteractiveQuestion) || Boolean(reviewInteractiveQuestion)}
+                        aria-label="Tua tới 5 giây"
+                        title="Tua tới 5 giây"
+                        className="relative flex size-9 shrink-0 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        <RotateCw className="size-4" />
+                        <span className="pointer-events-none absolute text-[8px] font-bold">5</span>
+                      </button>
+                      <select
+                        value={videoPlaybackRate}
+                        onChange={(event) => changeVideoPlaybackRate(Number(event.currentTarget.value))}
+                        disabled={!isVideoReady}
+                        aria-label="Tốc độ phát video"
+                        title="Tốc độ phát"
+                        className="h-9 shrink-0 rounded-lg border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-700 outline-none hover:border-blue-300 focus:border-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map((rate) => (
+                          <option key={rate} value={rate}>{rate}x</option>
+                        ))}
+                      </select>
                       <button
                         type="button"
                         onClick={() => void togglePlayerFullscreen()}
@@ -2008,7 +2149,7 @@ export default function LessonPage({ params }: { params: Promise<{ courseId: str
                 )}
                 {aiMessages.map((msg, idx) => (
                   <div key={idx} className={`flex gap-2 ${msg.sender === "user" ? "justify-end" : "justify-start"}`}>
-                    <div className={`max-w-[85%] whitespace-pre-wrap break-words rounded-2xl p-3 text-xs leading-relaxed ${msg.sender === "user" ? "bg-blue-600 text-white" : "bg-white text-slate-800 border border-slate-200"}`}>
+                    <div className={`max-w-[85%] whitespace-pre-wrap wrap-break-word rounded-2xl p-3 text-xs leading-relaxed ${msg.sender === "user" ? "bg-blue-600 text-white" : "bg-white text-slate-800 border border-slate-200"}`}>
                       {msg.text}
                     </div>
                   </div>
@@ -2055,10 +2196,10 @@ export default function LessonPage({ params }: { params: Promise<{ courseId: str
       <footer className="bg-[#102653] text-blue-100">
         <div className="mx-auto grid max-w-7xl gap-10 px-5 py-12 sm:grid-cols-2 lg:grid-cols-[1.6fr_1fr_1fr_1fr] lg:px-8">
           <div>
-            <Logo />
-            <p className="mt-4 max-w-xs text-sm leading-6 text-blue-200/70">
-              A better way to learn, practice, and grow the skills that move your future forward.
-            </p>
+           <Logo variant="white" />
+           <p className="mt-4 max-w-xs text-sm leading-6 text-blue-200/70">
+             A better way to learn, practice, and grow the skills that move your future forward.
+           </p>
             <div className="mt-5 flex gap-2">
               <a href="https://twitter.com" aria-label="Twitter" className="rounded-lg bg-white/10 p-2 hover:bg-white/20">
                 <Globe2 className="size-4" />

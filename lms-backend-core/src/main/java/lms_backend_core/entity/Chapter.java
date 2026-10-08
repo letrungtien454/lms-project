@@ -23,6 +23,7 @@ public class Chapter {
     private String title;
 
     @Column(name = "order_index", nullable = false)
+    @Builder.Default
     private Integer orderIndex = 0;
 
     @ManyToOne(fetch = FetchType.LAZY)

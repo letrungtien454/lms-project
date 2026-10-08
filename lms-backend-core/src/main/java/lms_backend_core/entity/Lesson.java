@@ -26,17 +26,21 @@ public class Lesson {
     @Column(name = "video_url", columnDefinition = "TEXT")
     private String videoUrl;
 
+    @Builder.Default
     @Column(name = "is_free_preview")
     private Boolean isPreview = false;
 
+    @Builder.Default
     @Column(name = "order_index", nullable = false)
     private Integer orderIndex = 1;
 
+    @Builder.Default
     @Column(name = "duration_seconds")
     private Integer durationSeconds = 0;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "lesson_type", length = 32)
+    @Builder.Default
     private LessonType lessonType = LessonType.VIDEO;
 
     @ManyToOne(fetch = FetchType.LAZY)

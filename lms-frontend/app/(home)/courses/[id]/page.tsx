@@ -223,7 +223,7 @@ function Header({
         </div>
 
         <nav className="hidden items-center gap-6 lg:flex shrink-0" aria-label="Điều hướng chính">
-          <a className="text-xs font-semibold text-slate-600 hover:text-blue-600 transition" href="/">
+          <a className="text-xs font-semibold text-slate-600 hover:text-blue-600 transition" href="/dashboard">
             Trang chủ
           </a>
           <a className="text-xs font-bold text-blue-600" href="/courses">
@@ -269,7 +269,7 @@ function Header({
                 <div className="flex size-8 items-center justify-center rounded-lg bg-blue-600 font-bold text-white text-sm shadow-xs">
                   {getFirstNameInitial(user?.fullName, user?.username)}
                 </div>
-                <span className="text-xs font-bold text-slate-700 max-w-[130px] truncate">
+                <span className="text-xs font-bold text-slate-700 max-w-32.5 truncate">
                   {user?.fullName || user?.username || "Học viên"}
                 </span>
                 <ChevronDown className="size-3.5 text-slate-400" />
@@ -627,14 +627,14 @@ function EnrollmentCard({
     : "ĐĂNG KÝ HỌC";
 
   return (
-    <aside className="w-full max-w-[340px] shrink-0 overflow-hidden rounded-2xl border border-slate-200/90 bg-white p-4 shadow-xl shadow-slate-200/50 lg:sticky lg:top-22">
+    <aside className="w-full max-w-85 shrink-0 overflow-hidden rounded-2xl border border-slate-200/90 bg-white p-4 shadow-xl shadow-slate-200/50 lg:sticky lg:top-22">
       <div className="relative flex aspect-video items-center justify-center overflow-hidden rounded-xl bg-slate-900 group">
         <img
           src={courseImage}
           alt="Ảnh bìa khóa học"
           className="absolute inset-0 size-full object-cover opacity-85 transition duration-300 group-hover:scale-105"
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+        <div className="absolute inset-0 bg-linear-to-t from-black/80 via-black/20 to-transparent" />
         
         <button
           onClick={onEnroll}
@@ -928,7 +928,14 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
     }
 
     if (isEnrolled) {
-      router.push(`/learning/${course.id || resolvedParams.id}`);
+      const courseId = String(course.id || resolvedParams.id);
+      const lastLessonId = localStorage.getItem(`eduflow:lastLesson:${courseId}`);
+
+      if (lastLessonId) {
+        router.push(`/learning/${courseId}?lesson=${encodeURIComponent(lastLessonId)}`);
+      } else {
+        router.push(`/learning/${courseId}`);
+      }
       return;
     }
 
@@ -978,7 +985,13 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
           const data = JSON.parse(text);
           if (data.message === "Bạn đã đăng ký khóa học này rồi!") {
             setIsEnrolled(true);
-            router.push(`/learning/${course.id || resolvedParams.id}`);
+            const courseId = String(course.id || resolvedParams.id);
+            const lastLessonId = localStorage.getItem(`eduflow:lastLesson:${courseId}`);
+            router.push(
+              lastLessonId
+                ? `/learning/${courseId}?lesson=${encodeURIComponent(lastLessonId)}`
+                : `/learning/${courseId}`
+            );
             return;
           }
           if (data.message) errorMessage = data.message;
@@ -1026,7 +1039,7 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
           <div className="flex flex-col gap-8 lg:flex-row lg:items-start lg:justify-between">
             {/* Nội dung bên trái */}
             <div className="min-w-0 flex-1">
-              <div className="rounded-2xl bg-gradient-to-r from-blue-50/80 via-indigo-50/40 to-transparent p-6 border border-blue-100/60 shadow-xs">
+              <div className="rounded-2xl bg-linear-to-r from-blue-50/80 via-indigo-50/40 to-transparent p-6 border border-blue-100/60 shadow-xs">
                 <h1 className="text-2xl font-black tracking-tight text-[#17305f] sm:text-3xl">
                   {course.title}
                 </h1>
