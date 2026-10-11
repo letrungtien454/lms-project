@@ -4,7 +4,7 @@ import useSWR from "swr";
 import CompactCodePracticeWorkspace from "@/components/code-practice-workspace";
 import ChapterSummaryQuiz from "@/components/chapter-summary-quiz";
 import Hls from "hls.js";
-import { useState, useRef, useEffect, use } from "react";
+import { useState, useRef, useEffect, use, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import YouTube from "react-youtube";
 import {
@@ -543,11 +543,37 @@ type LessonComment = {
   helpfulByCurrentUser: boolean;
 };
 
+/** Highlight chính xác phần @Tên người được trả lời, lấy dấu ":" làm dấu phân cách.
+ * Ví dụ: "@Trung Tiến: Mình đồng ý" -> chỉ @Trung Tiến có nền xanh.
+ */
+function renderCommentWithMentions(text: string) {
+  if (!text) return null;
+
+  if (text.startsWith("@")) {
+    const colonIndex = text.indexOf(":");
+    if (colonIndex > 1) {
+      const mentionPart = text.slice(0, colonIndex).trim();
+      const restContent = text.slice(colonIndex);
+      return (
+        <>
+          <span className="mr-1 inline-block rounded-md bg-blue-100 px-1.5 py-0.5 text-xs font-bold text-blue-700 shadow-2xs">
+            {mentionPart}
+          </span>
+          <span className="font-normal text-slate-700">{restContent}</span>
+        </>
+      );
+    }
+  }
+
+  return <span className="font-normal text-slate-700">{text}</span>;
+}
+
 function LessonDiscussion({ lessonId, isLoggedIn, authHref }: { lessonId: string; isLoggedIn: boolean; authHref: string }) {
   const [comments, setComments] = useState<LessonComment[]>([]);
   const [draft, setDraft] = useState("");
   const [replyTo, setReplyTo] = useState<number | null>(null);
   const [replyDraft, setReplyDraft] = useState("");
+  const [expandedCommentIds, setExpandedCommentIds] = useState<Set<number>>(() => new Set());
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -575,9 +601,7 @@ function LessonDiscussion({ lessonId, isLoggedIn, authHref }: { lessonId: string
         if (isCurrent) setIsLoading(false);
       });
 
-    return () => {
-      isCurrent = false;
-    };
+    return () => { isCurrent = false; };
   }, [lessonId, reloadKey]);
 
   const submitComment = async (parentCommentId: number | null) => {
@@ -604,6 +628,9 @@ function LessonDiscussion({ lessonId, isLoggedIn, authHref }: { lessonId: string
       setDraft("");
       setReplyDraft("");
       setReplyTo(null);
+      if (parentCommentId !== null) {
+        setExpandedCommentIds((previous) => new Set(previous).add(parentCommentId));
+      }
       setReloadKey((key) => key + 1);
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Không thể gửi bình luận.");
@@ -618,6 +645,22 @@ function LessonDiscussion({ lessonId, isLoggedIn, authHref }: { lessonId: string
   };
 
   const rootComments = comments.filter((comment) => comment.parentCommentId === null);
+  const repliesByParent = new Map<number, LessonComment[]>();
+  for (const comment of comments) {
+    if (comment.parentCommentId === null) continue;
+    const list = repliesByParent.get(comment.parentCommentId) ?? [];
+    list.push(comment);
+    repliesByParent.set(comment.parentCommentId, list);
+  }
+
+  const toggleExpanded = (commentId: number) => {
+    setExpandedCommentIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(commentId)) next.delete(commentId);
+      else next.add(commentId);
+      return next;
+    });
+  };
 
   const toggleHelpful = async (comment: LessonComment) => {
     const token = localStorage.getItem("accessToken");
@@ -627,36 +670,94 @@ function LessonDiscussion({ lessonId, isLoggedIn, authHref }: { lessonId: string
     }
 
     const wasHelpful = comment.helpfulByCurrentUser;
-    setComments((current) => current.map((entry) =>
-      entry.id === comment.id
-        ? {
-            ...entry,
-            helpfulByCurrentUser: !wasHelpful,
-            helpfulCount: Math.max(0, entry.helpfulCount + (wasHelpful ? -1 : 1)),
-          }
-        : entry
-    ));
+    setComments((current) => current.map((entry) => entry.id === comment.id
+      ? { ...entry, helpfulByCurrentUser: !wasHelpful, helpfulCount: Math.max(0, entry.helpfulCount + (wasHelpful ? -1 : 1)) }
+      : entry));
     try {
-      const response = await fetch(
-        `http://localhost:8080/api/lessons/${lessonId}/comments/${comment.id}/helpful`,
-        {
-          method: wasHelpful ? "DELETE" : "PUT",
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
+      const response = await fetch(`http://localhost:8080/api/lessons/${lessonId}/comments/${comment.id}/helpful`, {
+        method: wasHelpful ? "DELETE" : "PUT",
+        headers: { Authorization: `Bearer ${token}` },
+      });
       if (!response.ok) throw new Error("Không thể cập nhật lượt hữu ích.");
     } catch (voteError) {
-      setComments((current) => current.map((entry) =>
-        entry.id === comment.id
-          ? {
-              ...entry,
-              helpfulByCurrentUser: wasHelpful,
-              helpfulCount: Math.max(0, entry.helpfulCount + (wasHelpful ? 1 : -1)),
-            }
-          : entry
-      ));
+      setComments((current) => current.map((entry) => entry.id === comment.id
+        ? { ...entry, helpfulByCurrentUser: wasHelpful, helpfulCount: Math.max(0, entry.helpfulCount + (wasHelpful ? 1 : -1)) }
+        : entry));
       setError(voteError instanceof Error ? voteError.message : "Không thể cập nhật lượt hữu ích.");
     }
+  };
+
+  const renderCommentNode = (comment: LessonComment, depth: number): ReactNode => {
+    const replies = repliesByParent.get(comment.id) ?? [];
+    const isExpanded = expandedCommentIds.has(comment.id);
+    const isReplying = replyTo === comment.id;
+    // Giới hạn thụt lề trực quan, nhưng vẫn giữ cây dữ liệu và trạng thái mở rộng độc lập.
+    const indentLevel = Math.min(depth, 3);
+
+    return (
+      <div key={comment.id} className="min-w-0" style={{ marginLeft: indentLevel === 0 ? 0 : `${indentLevel * 14}px` }}>
+        <div className={`flex min-w-0 items-start gap-2.5 ${depth > 0 ? "border-l-2 border-blue-100 pl-3" : ""}`}>
+          <span className={`flex shrink-0 items-center justify-center rounded-full bg-slate-100 font-bold text-slate-600 ${depth === 0 ? "size-8 text-xs" : "size-7 text-[10px]"}`}>
+            {getFirstNameInitial(comment.authorName)}
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span className="text-xs font-bold text-slate-800">{comment.authorName}</span>
+              <time className="text-[10px] text-slate-400">{formatDate(comment.createdAt)}</time>
+            </div>
+            <p className="mt-1 whitespace-pre-wrap wrap-break-word text-xs leading-5">{renderCommentWithMentions(comment.content)}</p>
+            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2">
+              <button
+                type="button"
+                onClick={() => void toggleHelpful(comment)}
+                aria-pressed={comment.helpfulByCurrentUser}
+                className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-bold transition-colors ${
+                  comment.helpfulByCurrentUser
+                    ? "bg-blue-100 text-blue-700"
+                    : "text-slate-500 hover:bg-blue-50 hover:text-blue-600"
+                }`}
+              >
+                <ThumbsUp className={`size-3.5 transition-colors ${comment.helpfulByCurrentUser ? "fill-blue-600 text-blue-600" : ""}`} />
+                Hữu ích{comment.helpfulCount > 0 ? ` · ${comment.helpfulCount}` : ""}
+              </button>
+              {isLoggedIn && (
+                <button type="button" onClick={() => {
+                  if (isReplying) { setReplyTo(null); setReplyDraft(""); return; }
+                  setReplyTo(comment.id);
+                  setReplyDraft(`@${comment.authorName?.trim() || "Học viên"}: `);
+                }} className="text-[11px] font-bold text-blue-600 hover:text-blue-700">
+                  {isReplying ? "Hủy trả lời" : "Trả lời"}
+                </button>
+              )}
+              {replies.length > 0 && (
+                <button type="button" onClick={() => toggleExpanded(comment.id)} aria-expanded={isExpanded}
+                  className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-600 hover:text-blue-700">
+                  {isExpanded ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+                  {isExpanded ? "Ẩn câu trả lời" : `Xem thêm ${replies.length} ${depth === 0 ? "câu trả lời" : "bình luận"}`}
+                </button>
+              )}
+            </div>
+            {isReplying && (
+              <div className="mt-3 flex flex-col items-end gap-2">
+                <textarea aria-label={`Trả lời ${comment.authorName}`} value={replyDraft}
+                  onChange={(event) => setReplyDraft(event.target.value)} maxLength={2000}
+                  placeholder="Viết câu trả lời..."
+                  className="min-h-20 w-full resize-y rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs outline-none focus:border-blue-300 focus:bg-white" />
+                <button type="button" disabled={!replyDraft.trim() || isSubmitting} onClick={() => void submitComment(comment.id)}
+                  className="rounded-lg bg-slate-900 px-3 py-2 text-[11px] font-bold text-white hover:bg-slate-700 disabled:opacity-50">
+                  {isSubmitting ? "Đang gửi..." : "Gửi trả lời"}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+        {isExpanded && replies.length > 0 && (
+          <div className="mt-3 space-y-3">
+            {replies.map((reply) => renderCommentNode(reply, depth + 1))}
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -675,22 +776,13 @@ function LessonDiscussion({ lessonId, isLoggedIn, authHref }: { lessonId: string
       {isLoggedIn ? (
         <div className="space-y-2">
           <label htmlFor="lesson-question" className="text-xs font-bold text-slate-700">Đặt câu hỏi</label>
-          <textarea
-            id="lesson-question"
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            maxLength={2000}
+          <textarea id="lesson-question" value={draft} onChange={(event) => setDraft(event.target.value)} maxLength={2000}
             placeholder="Bạn chưa hiểu phần nào? Hãy mô tả cụ thể để mọi người hỗ trợ..."
-            className="min-h-24 w-full resize-y rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-50"
-          />
+            className="min-h-24 w-full resize-y rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-50" />
           <div className="flex items-center justify-between gap-3">
             <span className="text-[10px] text-slate-400">{draft.length}/2000</span>
-            <button
-              type="button"
-              disabled={!draft.trim() || isSubmitting}
-              onClick={() => void submitComment(null)}
-              className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-            >
+            <button type="button" disabled={!draft.trim() || isSubmitting} onClick={() => void submitComment(null)}
+              className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50">
               <Send className="size-3.5" /> {isSubmitting ? "Đang gửi..." : "Gửi câu hỏi"}
             </button>
           </div>
@@ -709,99 +801,11 @@ function LessonDiscussion({ lessonId, isLoggedIn, authHref }: { lessonId: string
           <p className="text-xs text-slate-500">Đang tải thảo luận...</p>
         ) : rootComments.length === 0 ? (
           <p className="rounded-xl bg-slate-50 px-4 py-5 text-center text-xs text-slate-500">Chưa có câu hỏi nào. Hãy là người đầu tiên bắt đầu trao đổi!</p>
-        ) : rootComments.map((comment) => {
-          const replies = comments.filter((entry) => entry.parentCommentId === comment.id);
-          return (
-            <article key={comment.id} className="rounded-xl border border-slate-100 bg-white p-4">
-              <div className="flex items-start gap-3">
-                <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-extrabold text-blue-700">
-                  {getFirstNameInitial(comment.authorName)}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                    <span className="text-xs font-bold text-slate-800">{comment.authorName}</span>
-                    <time className="text-[10px] text-slate-400">{formatDate(comment.createdAt)}</time>
-                  </div>
-                  <p className="mt-2 whitespace-pre-wrap wrap-break-word text-xs leading-5 text-slate-700">{comment.content}</p>
-                  <div className="mt-3 flex flex-wrap items-center gap-4">
-                    <button
-                      type="button"
-                      onClick={() => void toggleHelpful(comment)}
-                      aria-pressed={comment.helpfulByCurrentUser}
-                      className={`inline-flex items-center gap-1.5 text-[11px] font-bold transition ${
-                        comment.helpfulByCurrentUser ? "text-blue-700" : "text-slate-500 hover:text-blue-600"
-                      }`}
-                    >
-                      <ThumbsUp className="size-3.5" />
-                      Hữu ích{comment.helpfulCount > 0 ? ` · ${comment.helpfulCount}` : ""}
-                    </button>
-                    {isLoggedIn && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setReplyTo(replyTo === comment.id ? null : comment.id);
-                          setReplyDraft("");
-                        }}
-                        className="text-[11px] font-bold text-blue-600 hover:text-blue-700"
-                      >
-                        {replyTo === comment.id ? "Hủy trả lời" : "Trả lời"}
-                      </button>
-                    )}
-                  </div>
-                  {replyTo === comment.id && (
-                    <div className="mt-3 flex flex-col items-end gap-2">
-                      <textarea
-                        aria-label={`Trả lời ${comment.authorName}`}
-                        value={replyDraft}
-                        onChange={(event) => setReplyDraft(event.target.value)}
-                        maxLength={2000}
-                        placeholder="Viết câu trả lời..."
-                        className="min-h-20 w-full resize-y rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs outline-none focus:border-blue-300 focus:bg-white"
-                      />
-                      <button
-                        type="button"
-                        disabled={!replyDraft.trim() || isSubmitting}
-                        onClick={() => void submitComment(comment.id)}
-                        className="rounded-lg bg-slate-900 px-3 py-2 text-[11px] font-bold text-white hover:bg-slate-700 disabled:opacity-50"
-                      >
-                        Gửi trả lời
-                      </button>
-                    </div>
-                  )}
-                  {replies.length > 0 && (
-                    <div className="mt-4 space-y-3 border-l-2 border-blue-100 pl-3">
-                      {replies.map((reply) => (
-                        <div key={reply.id} className="flex items-start gap-2.5">
-                          <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[10px] font-bold text-slate-600">
-                            {getFirstNameInitial(reply.authorName)}
-                          </span>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                              <span className="text-[11px] font-bold text-slate-800">{reply.authorName}</span>
-                              <time className="text-[10px] text-slate-400">{formatDate(reply.createdAt)}</time>
-                            </div>
-                            <p className="mt-1 whitespace-pre-wrap wrap-break-word text-xs leading-5 text-slate-600">{reply.content}</p>
-                            <button
-                              type="button"
-                              onClick={() => void toggleHelpful(reply)}
-                              aria-pressed={reply.helpfulByCurrentUser}
-                              className={`mt-2 inline-flex items-center gap-1.5 text-[11px] font-bold transition ${
-                                reply.helpfulByCurrentUser ? "text-blue-700" : "text-slate-500 hover:text-blue-600"
-                              }`}
-                            >
-                              <ThumbsUp className="size-3.5" />
-                              Hữu ích{reply.helpfulCount > 0 ? ` · ${reply.helpfulCount}` : ""}
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </article>
-          );
-        })}
+        ) : rootComments.map((comment) => (
+          <article key={comment.id} className="rounded-xl border border-slate-100 bg-white p-4">
+            {renderCommentNode(comment, 0)}
+          </article>
+        ))}
       </div>
     </section>
   );

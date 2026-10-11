@@ -3,6 +3,7 @@ package lms_backend_core.controller;
 import lms_backend_core.dto.CourseResponse;
 import lms_backend_core.entity.Course;
 import lms_backend_core.repository.CourseRepository;
+import lms_backend_core.repository.EnrollmentRepository;
 import lms_backend_core.service.LearningFlowService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -21,6 +22,7 @@ import java.util.stream.Collectors;
 public class CourseController {
 
         private final CourseRepository courseRepository;
+        private final EnrollmentRepository enrollmentRepository; // Inject EnrollmentRepository
         private final LearningFlowService learningFlowService;
 
         // 1. Lấy tất cả khóa học đã xuất bản
@@ -47,7 +49,7 @@ public class CourseController {
                 return ResponseEntity.ok(courses);
         }
 
-        // 2. Lấy chi tiết 1 khóa học theo ID (ĐÃ BỔ SUNG MAP CHAPTERS)
+        // 2. Lấy chi tiết 1 khóa học theo ID
         @GetMapping("/{id}")
         @Transactional(readOnly = true)
         public ResponseEntity<?> getCourseById(@PathVariable Long id, Authentication authentication) {
@@ -76,5 +78,12 @@ public class CourseController {
                                 .build();
 
                 return ResponseEntity.ok(response);
+        }
+
+        // 3. Đếm số lượng học viên đăng ký của khóa học (Xử lý lỗi 404 cho Frontend)
+        @GetMapping("/{id}/enrollment-count")
+        public ResponseEntity<Long> getEnrollmentCount(@PathVariable Long id) {
+                long count = enrollmentRepository.countByCourseId(id);
+                return ResponseEntity.ok(count);
         }
 }
