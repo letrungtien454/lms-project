@@ -24,8 +24,9 @@ class ChapterQuizServiceTest {
     private final EnrollmentRepository enrollmentRepository = mock(EnrollmentRepository.class);
     private final ChapterQuizQuestionRepository questionRepository = mock(ChapterQuizQuestionRepository.class);
     private final ChapterQuizAttemptRepository attemptRepository = mock(ChapterQuizAttemptRepository.class);
+    private final QuizRepository quizRepository = mock(QuizRepository.class);
     private final ChapterQuizService service = new ChapterQuizService(
-            userRepository, chapterRepository, enrollmentRepository, questionRepository, attemptRepository);
+            userRepository, chapterRepository, enrollmentRepository, questionRepository, attemptRepository, quizRepository);
     private final Authentication authentication =
             new UsernamePasswordAuthenticationToken("student@example.test", "password", List.of());
     private final User student = new User();
@@ -37,6 +38,9 @@ class ChapterQuizServiceTest {
         student.setRole(Role.STUDENT);
         Course course = new Course();
         course.setId(11L);
+        User teacher = new User();
+        teacher.setId(12L);
+        course.setTeacher(teacher);
         Chapter chapter = new Chapter();
         chapter.setId(3L);
         chapter.setCourse(course);
@@ -47,10 +51,11 @@ class ChapterQuizServiceTest {
 
     @Test
     void rejectsRequestLargerThanUniqueChapterQuestionPool() {
-        when(questionRepository.findDistinctQuestionsInChapter(3L)).thenReturn(List.of(question(1L, "A")));
+        Quiz quiz = quiz(2, 15, Quiz.QuestionSelectionMode.MANUAL, List.of(question(1L, "A")));
+        when(quizRepository.findByLessonId(19L)).thenReturn(Optional.of(quiz));
 
         ResponseStatusException exception = assertThrows(ResponseStatusException.class,
-                () -> service.start(3L, new ChapterQuizDtos.StartRequest(2, 1), authentication));
+                () -> service.start(3L, new ChapterQuizDtos.StartRequest(19L), authentication));
 
         assertEquals(400, exception.getStatusCode().value());
         verify(attemptRepository, never()).save(any());
@@ -58,13 +63,65 @@ class ChapterQuizServiceTest {
 
     @Test
     void availabilityReturnsUniqueChapterQuestionCount() {
-        when(questionRepository.findDistinctQuestionsInChapter(3L))
-                .thenReturn(List.of(question(1L, "A"), question(2L, "B")));
+        Quiz quiz = quiz(2, 25, Quiz.QuestionSelectionMode.MANUAL,
+                List.of(question(1L, "A"), question(2L, "B")));
+        when(quizRepository.findByLessonId(19L)).thenReturn(Optional.of(quiz));
 
-        ChapterQuizDtos.Availability availability = service.availability(3L, authentication);
+        ChapterQuizDtos.Availability availability = service.availability(3L, 19L, authentication);
 
         assertEquals(3L, availability.chapterId());
         assertEquals(2, availability.availableQuestionCount());
+        assertEquals(2, availability.questionCount());
+        assertEquals(25, availability.timeLimitMinutes());
+    }
+
+    @Test
+    void startUsesTeacherConfiguredCountAndTimeInsteadOfClientValues() {
+        Quiz quiz = quiz(2, 25, Quiz.QuestionSelectionMode.MANUAL,
+                List.of(question(1L, "A"), question(2L, "B"), question(3L, "A")));
+        when(quizRepository.findByLessonId(19L)).thenReturn(Optional.of(quiz));
+        when(chapterRepository.getReferenceById(3L)).thenReturn(quiz.getLesson().getChapter());
+        when(attemptRepository.save(any(ChapterQuizAttempt.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        ChapterQuizDtos.StartedAttempt started = service.start(
+                3L, new ChapterQuizDtos.StartRequest(19L), authentication);
+
+        assertEquals(2, started.questionCount());
+        assertEquals(25, started.timeLimitMinutes());
+        assertEquals(2, started.questions().size());
+    }
+
+    @Test
+    void activeAttemptReturnsCurrentUnsubmittedAttempt() {
+        ChapterQuizAttempt attempt = attempt(44L, 3L, 7L);
+        attempt.setQuestions(List.of(attemptQuestion(attempt, question(10L, "A"), "B", 1)));
+        Quiz quiz = quiz(1, 15, Quiz.QuestionSelectionMode.MANUAL, List.of(question(10L, "A")));
+        when(quizRepository.findByLessonId(19L)).thenReturn(Optional.of(quiz));
+        when(attemptRepository
+                .findFirstByChapter_IdAndQuizLesson_IdAndStudent_IdAndSubmittedAtIsNullOrderByStartedAtDesc(
+                        3L, 19L, 7L))
+                .thenReturn(Optional.of(attempt));
+
+        ChapterQuizDtos.AttemptStatus status = service.activeAttempt(3L, 19L, authentication);
+
+        assertNotNull(status);
+        assertEquals(44L, status.attemptId());
+        assertFalse(status.submitted());
+        assertEquals(1, status.questions().size());
+        assertEquals("B", status.savedAnswers().get(0).selectedOption());
+    }
+
+    @Test
+    void activeAttemptReturnsNullWhenNoAttemptIsInProgress() {
+        when(quizRepository.findByLessonId(19L)).thenReturn(Optional.of(
+                quiz(1, 15, Quiz.QuestionSelectionMode.MANUAL, List.of(question(10L, "A")))));
+        when(attemptRepository
+                .findFirstByChapter_IdAndQuizLesson_IdAndStudent_IdAndSubmittedAtIsNullOrderByStartedAtDesc(
+                        3L, 19L, 7L))
+                .thenReturn(Optional.empty());
+
+        assertNull(service.activeAttempt(3L, 19L, authentication));
     }
 
     @Test
@@ -126,6 +183,32 @@ class ChapterQuizServiceTest {
         attempt.setStartedAt(started);
         attempt.setDeadlineAt(started.plusSeconds(60));
         return attempt;
+    }
+
+    private Quiz quiz(
+            int questionCount,
+            int timeLimitMinutes,
+            Quiz.QuestionSelectionMode selectionMode,
+            List<QuestionBank> questions) {
+        Course course = new Course();
+        course.setId(11L);
+        User teacher = new User();
+        teacher.setId(12L);
+        course.setTeacher(teacher);
+        Chapter chapter = new Chapter();
+        chapter.setId(3L);
+        chapter.setCourse(course);
+        Lesson lesson = new Lesson();
+        lesson.setId(19L);
+        lesson.setChapter(chapter);
+        lesson.setLessonType(Lesson.LessonType.QUIZ);
+        Quiz quiz = new Quiz();
+        quiz.setLesson(lesson);
+        quiz.setQuestionCount(questionCount);
+        quiz.setTimeLimitMinutes(timeLimitMinutes);
+        quiz.setSelectionMode(selectionMode);
+        quiz.setQuestions(questions);
+        return quiz;
     }
 
     private ChapterQuizAttemptQuestion attemptQuestion(

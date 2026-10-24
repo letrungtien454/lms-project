@@ -1,0 +1,9 @@
+{
+  "xml.downloadExternalResources.enabled": true,
+  "terminal.integrated.shellIntegration.decorationsEnabled": "both",
+  "terminal.integrated.stickyScroll.enabled": true,
+  "java.configuration.updateBuildConfiguration": "automatic",
+  "java.jdt.ls.lombokSupport.enabled": true,
+  "java.compile.nullAnalysis.mode": "automatic",
+  "java.jdt.ls.vmargs": "-Xms128m -Xmx1024m"
+}

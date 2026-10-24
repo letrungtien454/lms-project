@@ -27,6 +27,13 @@ public class Quiz {
     @Column(name = "time_limit_minutes")
     private Integer timeLimitMinutes = 15;
 
+    @Column(name = "question_count", nullable = false)
+    private Integer questionCount = 10;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "selection_mode", nullable = false, length = 16)
+    private QuestionSelectionMode selectionMode = QuestionSelectionMode.RANDOM;
+
     @Column(name = "pass_score")
     private Integer passScore = 80;
 
@@ -36,4 +43,9 @@ public class Quiz {
             inverseJoinColumns = @JoinColumn(name = "question_id"))
     @OrderBy("id ASC")
     private List<QuestionBank> questions;
+
+    public enum QuestionSelectionMode {
+        RANDOM,
+        MANUAL
+    }
 }

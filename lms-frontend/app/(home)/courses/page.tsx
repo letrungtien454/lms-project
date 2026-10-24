@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
+import { clearAuthSession, getAccessToken } from '@/lib/auth-session'
 import {
   ArrowRight,
   Award,
@@ -582,7 +583,7 @@ export default function CoursesPage() {
   }, [])
 
   useEffect(() => {
-    const token = localStorage.getItem('accessToken')
+    const token = getAccessToken()
     if (!token) return
     setIsLoggedIn(true)
     fetch('http://localhost:8080/api/users/me', {
@@ -596,7 +597,7 @@ export default function CoursesPage() {
   }, [])
 
   const handleLogout = () => {
-    localStorage.removeItem('accessToken')
+    clearAuthSession()
     setUser(null)
     setIsLoggedIn(false)
   }

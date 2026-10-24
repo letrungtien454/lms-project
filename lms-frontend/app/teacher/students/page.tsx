@@ -1,410 +1,390 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import {
-  Bell,
+  Search,
+  Download,
+  UserPlus,
+  Users,
+  UserCheck,
   BookOpen,
-  CheckCircle2,
+  Award,
+  MoreHorizontal,
   ChevronLeft,
   ChevronRight,
-  Download,
-  FileText,
-  GraduationCap,
-  HelpCircle,
-  LayoutDashboard,
-  MessageSquare,
-  MoreHorizontal,
-  Plus,
-  Search,
-  Settings,
-  Sparkles,
-  TrendingUp,
-  UserCheck,
-  Users,
+  Loader2,
 } from "lucide-react";
+import { apiRequest } from "@/lib/api";
 
-// 1. Navigation items Sidebar
-const navItems = [
-  ["Dashboard", LayoutDashboard, "/teacher/dashboard"],
-  ["Quản lý khóa học", BookOpen, "/teacher/courses"],
-  ["Quản lý bài học", FileText, "/teacher/lessons"],
-  ["Ngân hàng câu hỏi", HelpCircle, "/teacher/question_bank"],
-  ["Quản lý học viên", Users, "/teacher/students"],
-  ["Thống kê", TrendingUp, "/teacher/analytics"],
-  ["Đánh giá & Nhận xét", MessageSquare, "/teacher/reviews"],
-  ["Thông báo", Bell, "/teacher/notifications"],
-  ["Cài đặt", Settings, "/teacher/settings"],
-] as const;
-
-// 2. Dữ liệu học viên mẫu (Khớp hoàn toàn với ảnh chụp mẫu)
-const studentsData = [
-  {
-    stt: 1,
-    name: "Nguyễn Thị Lan",
-    email: "lan.nguyen@gmail.com",
-    course: "Java Full Stack",
-    status: "Đang học",
-    date: "12/04/2025",
-    avatarTone: "from-rose-400 to-pink-600",
-  },
-  {
-    stt: 2,
-    name: "Trần Minh Hoàng",
-    email: "hoangtm@gmail.com",
-    course: "Python Data Science",
-    status: "Đang học",
-    date: "10/04/2025",
-    avatarTone: "from-blue-400 to-indigo-600",
-  },
-  {
-    stt: 3,
-    name: "Lê Thị Mai",
-    email: "mai.lt@gmail.com",
-    course: "Web Development",
-    status: "Đã hoàn thành",
-    date: "08/04/2025",
-    avatarTone: "from-amber-400 to-orange-500",
-  },
-  {
-    stt: 4,
-    name: "Phạm Văn Tuấn",
-    email: "tuanpv@gmail.com",
-    course: "Java Full Stack",
-    status: "Đang học",
-    date: "05/04/2025",
-    avatarTone: "from-emerald-400 to-teal-600",
-  },
-  {
-    stt: 5,
-    name: "Hoàng Đức Anh",
-    email: "anhhd@gmail.com",
-    course: "Machine Learning",
-    status: "Đang học",
-    date: "03/04/2025",
-    avatarTone: "from-purple-400 to-violet-600",
-  },
-];
+type Enrollment = {
+  id: number;
+  studentId: number;
+  studentName: string;
+  studentEmail: string;
+  courseTitle: string;
+  amountPaid: number;
+  enrolledAt: string;
+  completedLessons: number;
+  totalLessons: number;
+  progressPercent: number;
+};
 
 export default function TeacherStudentsPage() {
-  const [selectedCourse, setSelectedCourse] = useState("Tất cả khóa học");
-  const [selectedStatus, setSelectedStatus] = useState("Tất cả trạng thái");
+  const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  // Filter States
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedCourse, setSelectedCourse] = useState("ALL");
+  const [selectedStatus, setSelectedStatus] = useState("ALL");
+
+  // Pagination States
   const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 5;
+
+  useEffect(() => {
+    setLoading(true);
+    apiRequest<Enrollment[]>("/api/teacher/students")
+      .then((data) => {
+        setEnrollments(data || []);
+        setError("");
+      })
+      .catch((cause: unknown) => {
+        setError(
+          cause instanceof Error ? cause.message : "Không tải được danh sách học viên."
+        );
+      })
+      .finally(() => setLoading(false));
+  }, []);
+
+  // Lấy danh sách khóa học duy nhất để fill vào bộ lọc
+  const courseOptions = useMemo(() => {
+    const courses = Array.from(new Set(enrollments.map((item) => item.courseTitle)));
+    return courses;
+  }, [enrollments]);
+
+  // Thống kê Metrics
+  const stats = useMemo(() => {
+    const total = enrollments.length;
+    const completed = enrollments.filter((item) => item.progressPercent === 100).length;
+    const learning = total - completed;
+    const newStudents = enrollments.filter((item) => {
+      const date = new Date(item.enrolledAt);
+      const now = new Date();
+      return now.getTime() - date.getTime() <= 30 * 24 * 60 * 60 * 1000; // 30 ngày qua
+    }).length;
+
+    return { total, completed, learning, newStudents };
+  }, [enrollments]);
+
+  // Logic lọc dữ liệu
+  const filteredEnrollments = useMemo(() => {
+    return enrollments.filter((item) => {
+      const matchesSearch =
+        item.studentName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        item.studentEmail.toLowerCase().includes(searchQuery.toLowerCase());
+
+      const matchesCourse =
+        selectedCourse === "ALL" || item.courseTitle === selectedCourse;
+
+      const isCompleted = item.progressPercent === 100;
+      const matchesStatus =
+        selectedStatus === "ALL" ||
+        (selectedStatus === "LEARNING" && !isCompleted) ||
+        (selectedStatus === "COMPLETED" && isCompleted);
+
+      return matchesSearch && matchesCourse && matchesStatus;
+    });
+  }, [enrollments, searchQuery, selectedCourse, selectedStatus]);
+
+  // Logic Phân trang
+  const totalPages = Math.max(1, Math.ceil(filteredEnrollments.length / pageSize));
+  const paginatedEnrollments = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredEnrollments.slice(start, start + pageSize);
+  }, [filteredEnrollments, currentPage]);
+
+  const handlePageChange = (page: number) => {
+    if (page >= 1 && page <= totalPages) {
+      setCurrentPage(page);
+    }
+  };
 
   return (
-    <div className="flex min-h-screen bg-[#f6f9fd] text-slate-800 font-sans text-xs antialiased">
-      {/* SIDEBAR TRÁI */}
-      <aside className="fixed inset-y-0 left-0 z-40 w-57.5 bg-[#102957] text-white flex flex-col justify-between">
-        <div>
-          {/* Header chung đồng nhất h-[70px] */}
-          <div className="flex h-17.5 items-center gap-3 border-b border-white/10 px-5">
-            <span className="flex size-9 items-center justify-center rounded-xl bg-blue-500 shadow-md">
-              <GraduationCap className="size-5" />
-            </span>
-            <div>
-              <p className="text-sm font-bold leading-tight">Giảng viên</p>
-              <p className="text-[10px] text-blue-200/80 leading-tight mt-0.5">
-                Không gian quản lý
-              </p>
-            </div>
+    <main className="min-h-screen bg-[#f4f7fc] p-4 font-sans text-slate-800 sm:p-6 lg:p-8 antialiased">
+      <div className="mx-auto max-w-7xl space-y-5">
+        
+        {/* --- 1. HEADER CHÍNH --- */}
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-[#17305f]">
+              Quản lý học viên
+            </h1>
+            <p className="mt-1 text-xs font-medium text-slate-400">
+              Theo dõi và quản lý học viên đăng ký các khóa học của bạn
+            </p>
           </div>
 
-          <nav className="p-3 space-y-1">
-            {navItems.map(([label, Icon, path]) => {
-              const isActive = label === "Quản lý học viên";
-              return (
-                <a
-                  key={label}
-                  href={path}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs transition ${
-                    isActive
-                      ? "bg-blue-600 font-bold text-white shadow-md shadow-blue-900/30"
-                      : "text-blue-100/75 hover:bg-white/10 hover:text-white"
-                  }`}
-                >
-                  <Icon className="size-4" />
-                  {label}
-                </a>
-              );
-            })}
-          </nav>
+          <div className="flex items-center gap-2.5">
+            <button
+              type="button"
+              className="flex items-center gap-2 rounded-xl border border-blue-200/80 bg-white px-3.5 py-2 text-xs font-bold text-blue-600 shadow-2xs hover:bg-blue-50 transition cursor-pointer"
+            >
+              <Download className="size-4" /> Xuất Excel
+            </button>
+            <button
+              type="button"
+              className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white shadow-md shadow-blue-500/20 hover:bg-blue-700 transition cursor-pointer"
+            >
+              <UserPlus className="size-4" /> Thêm học viên
+            </button>
+          </div>
         </div>
-      </aside>
 
-      {/* KHU VỰC CHÍNH */}
-      <div className="pl-57.5 flex-1 flex flex-col min-w-0">
-        {/* Top Header */}
-        <header className="sticky top-0 z-30 h-17.5 border-b border-slate-200 bg-white/95 backdrop-blur px-7 flex items-center justify-between">
-          <div className="flex max-w-110 flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-            <Search className="size-4 text-slate-400" />
+        {error && (
+          <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs text-rose-800">
+            {error}
+          </p>
+        )}
+
+        {/* --- 2. THANH SEARCH & BỘ LỌC --- */}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative flex-1 min-w-[240px] max-w-sm">
+            <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
-              placeholder="Tìm khóa học, học viên, nội dung..."
-              className="w-full bg-transparent text-xs outline-none"
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setCurrentPage(1);
+              }}
+              placeholder="Tìm kiếm học viên (tên, email...)"
+              className="w-full rounded-2xl border border-slate-200/80 bg-white pl-10 pr-4 py-2 text-xs text-slate-700 outline-none transition focus:border-blue-500"
             />
           </div>
 
-          <div className="flex items-center gap-4">
-            <button className="relative p-2 text-slate-500 hover:text-blue-600">
-              <Bell className="size-5" />
-              <span className="absolute top-1 right-1 size-2 rounded-full bg-red-500" />
-            </button>
-            <div className="flex items-center gap-2.5 pl-3 border-l border-slate-200">
-              <span className="flex size-8 items-center justify-center rounded-full bg-linear-to-br from-amber-300 to-orange-500 font-bold text-white text-xs">
-                NV
-              </span>
-              <div>
-                <p className="font-bold text-slate-800 leading-tight">
-                  Nguyễn Văn Nam
-                </p>
-                <p className="text-[10px] text-slate-400">Giảng viên</p>
-              </div>
-            </div>
-          </div>
-        </header>
+          <select
+            value={selectedCourse}
+            onChange={(e) => {
+              setSelectedCourse(e.target.value);
+              setCurrentPage(1);
+            }}
+            className="rounded-2xl border border-slate-200/80 bg-white px-3.5 py-2 text-xs font-medium text-slate-600 outline-none cursor-pointer focus:border-blue-500"
+          >
+            <option value="ALL">Tất cả khóa học</option>
+            {courseOptions.map((courseTitle) => (
+              <option key={courseTitle} value={courseTitle}>
+                {courseTitle}
+              </option>
+            ))}
+          </select>
 
-        {/* Nội dung trang */}
-        <main className="p-6 space-y-5 max-w-375">
-          {/* Tiêu đề trang & Các nút Action */}
-          <div className="flex items-end justify-between gap-4">
+          <select
+            value={selectedStatus}
+            onChange={(e) => {
+              setSelectedStatus(e.target.value);
+              setCurrentPage(1);
+            }}
+            className="rounded-2xl border border-slate-200/80 bg-white px-3.5 py-2 text-xs font-medium text-slate-600 outline-none cursor-pointer focus:border-blue-500"
+          >
+            <option value="ALL">Tất cả trạng thái</option>
+            <option value="LEARNING">Đang học</option>
+            <option value="COMPLETED">Đã hoàn thành</option>
+          </select>
+        </div>
+
+        {/* --- 3. METRIC CARDS STATS --- */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="flex items-center gap-4 rounded-2xl bg-white p-4 shadow-[0_2px_12px_rgba(0,0,0,0.03)] border border-slate-100">
+            <div className="flex size-12 items-center justify-center rounded-2xl bg-blue-50 text-blue-600 shrink-0">
+              <BookOpen className="size-6" />
+            </div>
             <div>
-              <h1 className="text-xl font-bold text-[#17305f]">
-                Quản lý học viên
-              </h1>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Theo dõi và quản lý học viên đăng ký các khóa học của bạn
+              <p className="text-[11px] font-semibold text-slate-400">Tổng học viên</p>
+              <h3 className="text-xl font-extrabold text-[#17305f] mt-0.5">{stats.total}</h3>
+              <p className="mt-1 text-[10px] font-bold text-emerald-500 flex items-center gap-0.5">
+                ↑ 12% <span className="font-normal text-slate-400">so với tháng trước</span>
               </p>
             </div>
-            <div className="flex items-center gap-3">
-              <button className="h-9 px-3.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold rounded-xl flex items-center gap-2 shadow-2xs transition cursor-pointer">
-                <Download className="size-4 text-blue-600" /> Xuất Excel
-              </button>
-              <button className="h-9 px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl flex items-center gap-2 shadow-md shadow-blue-200 transition cursor-pointer">
-                <Plus className="size-4" /> Thêm học viên
-              </button>
+          </div>
+
+          <div className="flex items-center gap-4 rounded-2xl bg-white p-4 shadow-[0_2px_12px_rgba(0,0,0,0.03)] border border-slate-100">
+            <div className="flex size-12 items-center justify-center rounded-2xl bg-purple-50 text-purple-600 shrink-0">
+              <Users className="size-6" />
+            </div>
+            <div>
+              <p className="text-[11px] font-semibold text-slate-400">Học viên mới</p>
+              <h3 className="text-xl font-extrabold text-[#17305f] mt-0.5">{stats.newStudents}</h3>
+              <p className="mt-1 text-[10px] font-bold text-emerald-500 flex items-center gap-0.5">
+                ↑ 18% <span className="font-normal text-slate-400">so với tháng trước</span>
+              </p>
             </div>
           </div>
 
-          {/* Thanh lọc & Tìm kiếm */}
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
-            <div className="md:col-span-5 flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-2xs">
-              <Search className="size-4 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Tìm kiếm học viên (tên, email...)"
-                className="w-full bg-transparent text-xs outline-none"
-              />
+          <div className="flex items-center gap-4 rounded-2xl bg-white p-4 shadow-[0_2px_12px_rgba(0,0,0,0.03)] border border-slate-100">
+            <div className="flex size-12 items-center justify-center rounded-2xl bg-amber-50 text-amber-500 shrink-0">
+              <UserCheck className="size-6" />
             </div>
-
-            <div className="md:col-span-7 flex items-center gap-3 justify-end">
-              <select
-                value={selectedCourse}
-                onChange={(e) => setSelectedCourse(e.target.value)}
-                className="h-9 px-3 rounded-xl border border-slate-200 bg-white text-slate-600 outline-none shadow-2xs cursor-pointer min-w-37.5"
-              >
-                <option>Tất cả khóa học</option>
-                <option>Java Full Stack</option>
-                <option>Python Data Science</option>
-                <option>Web Development</option>
-                <option>Machine Learning</option>
-              </select>
-
-              <select
-                value={selectedStatus}
-                onChange={(e) => setSelectedStatus(e.target.value)}
-                className="h-9 px-3 rounded-xl border border-slate-200 bg-white text-slate-600 outline-none shadow-2xs cursor-pointer min-w-35"
-              >
-                <option>Tất cả trạng thái</option>
-                <option>Đang học</option>
-                <option>Đã hoàn thành</option>
-              </select>
+            <div>
+              <p className="text-[11px] font-semibold text-slate-400">Đang học</p>
+              <h3 className="text-xl font-extrabold text-[#17305f] mt-0.5">{stats.learning}</h3>
+              <p className="mt-1 text-[10px] font-bold text-emerald-500 flex items-center gap-0.5">
+                ↑ 8% <span className="font-normal text-slate-400">so với tháng trước</span>
+              </p>
             </div>
           </div>
 
-          {/* 4 Thẻ Thống Kê Chỉ Số Học Viên */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="p-4 rounded-2xl border border-slate-200/80 bg-white shadow-[0_4px_18px_rgba(23,48,95,0.05)] flex items-center gap-4">
-              <span className="flex size-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600 shrink-0">
-                <BookOpen className="size-5" />
-              </span>
-              <div>
-                <p className="text-[11px] text-slate-400">Tổng học viên</p>
-                <div className="flex items-baseline gap-2 mt-0.5">
-                  <h3 className="text-xl font-bold text-[#17305f]">428</h3>
-                  <span className="text-[10px] font-bold text-emerald-600">
-                    ↑ 12% so với tháng trước
-                  </span>
-                </div>
-              </div>
+          <div className="flex items-center gap-4 rounded-2xl bg-white p-4 shadow-[0_2px_12px_rgba(0,0,0,0.03)] border border-slate-100">
+            <div className="flex size-12 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600 shrink-0">
+              <Award className="size-6" />
             </div>
-
-            <div className="p-4 rounded-2xl border border-slate-200/80 bg-white shadow-[0_4px_18px_rgba(23,48,95,0.05)] flex items-center gap-4">
-              <span className="flex size-10 items-center justify-center rounded-xl bg-purple-50 text-purple-600 shrink-0">
-                <Users className="size-5" />
-              </span>
-              <div>
-                <p className="text-[11px] text-slate-400">Học viên mới</p>
-                <div className="flex items-baseline gap-2 mt-0.5">
-                  <h3 className="text-xl font-bold text-[#17305f]">86</h3>
-                  <span className="text-[10px] font-bold text-emerald-600">
-                    ↑ 18% so với tháng trước
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div className="p-4 rounded-2xl border border-slate-200/80 bg-white shadow-[0_4px_18px_rgba(23,48,95,0.05)] flex items-center gap-4">
-              <span className="flex size-10 items-center justify-center rounded-xl bg-amber-50 text-amber-600 shrink-0">
-                <UserCheck className="size-5" />
-              </span>
-              <div>
-                <p className="text-[11px] text-slate-400">Đang học</p>
-                <div className="flex items-baseline gap-2 mt-0.5">
-                  <h3 className="text-xl font-bold text-[#17305f]">312</h3>
-                  <span className="text-[10px] font-bold text-emerald-600">
-                    ↑ 8% so với tháng trước
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div className="p-4 rounded-2xl border border-slate-200/80 bg-white shadow-[0_4px_18px_rgba(23,48,95,0.05)] flex items-center gap-4">
-              <span className="flex size-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 shrink-0">
-                <CheckCircle2 className="size-5" />
-              </span>
-              <div>
-                <p className="text-[11px] text-slate-400">Hoàn thành</p>
-                <div className="flex items-baseline gap-2 mt-0.5">
-                  <h3 className="text-xl font-bold text-[#17305f]">116</h3>
-                  <span className="text-[10px] font-bold text-emerald-600">
-                    ↑ 15% so với tháng trước
-                  </span>
-                </div>
-              </div>
+            <div>
+              <p className="text-[11px] font-semibold text-slate-400">Hoàn thành</p>
+              <h3 className="text-xl font-extrabold text-[#17305f] mt-0.5">{stats.completed}</h3>
+              <p className="mt-1 text-[10px] font-bold text-emerald-500 flex items-center gap-0.5">
+                ↑ 15% <span className="font-normal text-slate-400">so với tháng trước</span>
+              </p>
             </div>
           </div>
+        </div>
 
-          {/* Bảng Danh Sách Học Viên */}
-          <div className="rounded-2xl border border-slate-200/80 bg-white shadow-[0_4px_18px_rgba(23,48,95,0.05)] overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-212.5 text-left text-[11px]">
-                <thead className="bg-slate-50/70 border-b border-slate-100 text-slate-500 font-semibold">
+        {/* --- 4. BẢNG DANH SÁCH HỌC VIÊN --- */}
+        <div className="rounded-3xl bg-white p-5 shadow-[0_2px_16px_rgba(0,0,0,0.03)] border border-slate-100 space-y-4">
+          <div className="overflow-x-auto min-h-[300px]">
+            <table className="w-full min-w-[800px] text-left text-xs">
+              <thead>
+                <tr className="border-b border-slate-100 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                  <th className="pb-3 pl-3 w-12 text-center">STT</th>
+                  <th className="pb-3">Họ tên</th>
+                  <th className="pb-3">Email</th>
+                  <th className="pb-3">Khóa học</th>
+                  <th className="pb-3">Trạng thái</th>
+                  <th className="pb-3">Ngày đăng ký</th>
+                  <th className="pb-3 text-right pr-3">Thao tác</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {loading ? (
                   <tr>
-                    <th className="py-3.5 px-4 w-14 text-center">STT</th>
-                    <th className="py-3.5 px-4">Họ tên</th>
-                    <th className="py-3.5 px-4">Email</th>
-                    <th className="py-3.5 px-4">Khóa học</th>
-                    <th className="py-3.5 px-4">Trạng thái</th>
-                    <th className="py-3.5 px-4">Ngày đăng ký</th>
-                    <th className="py-3.5 px-4 text-center">Thao tác</th>
+                    <td colSpan={7} className="py-12 text-center text-slate-400">
+                      <Loader2 className="size-5 animate-spin mx-auto mb-2 text-blue-600" />
+                      <span>Đang tải danh sách học viên...</span>
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-                  {studentsData.map((student) => (
-                    <tr
-                      key={student.stt}
-                      className="hover:bg-slate-50/50 transition"
-                    >
-                      {/* Ô Số Thứ Tự tròn màu nhạt */}
-                      <td className="py-3.5 px-4 text-center">
-                        <span className="inline-flex size-6 items-center justify-center rounded-full bg-slate-100 text-[10px] font-bold text-slate-500">
-                          {student.stt}
-                        </span>
-                      </td>
+                ) : paginatedEnrollments.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-12 text-center text-slate-400 italic">
+                      Không tìm thấy học viên nào.
+                    </td>
+                  </tr>
+                ) : (
+                  paginatedEnrollments.map((item, index) => {
+                    const stt = (currentPage - 1) * pageSize + index + 1;
+                    const isCompleted = item.progressPercent === 100;
+                    const firstChar = item.studentName.trim().charAt(0).toUpperCase();
 
-                      {/* Họ tên + Avatar */}
-                      <td className="py-3.5 px-4">
-                        <div className="flex items-center gap-3">
-                          <span
-                            className={`flex size-8 shrink-0 items-center justify-center rounded-full bg-linear-to-br ${student.avatarTone} font-bold text-white text-[10px] shadow-2xs`}
+                    return (
+                      <tr key={item.id} className="group hover:bg-slate-50/60 transition">
+                        <td className="py-3.5 pl-3 text-center font-bold text-slate-400">
+                          {stt}
+                        </td>
+
+                        <td className="py-3.5 font-bold text-slate-800">
+                          <div className="flex items-center gap-3">
+                            <span className="flex size-8 items-center justify-center rounded-full bg-blue-100/70 text-xs font-bold text-blue-700 shrink-0">
+                              {firstChar}
+                            </span>
+                            <span>{item.studentName}</span>
+                          </div>
+                        </td>
+
+                        <td className="text-slate-500 font-medium">
+                          {item.studentEmail}
+                        </td>
+
+                        <td className="font-medium text-slate-700">
+                          {item.courseTitle}
+                        </td>
+
+                        <td>
+                          {isCompleted ? (
+                            <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-[10px] font-bold text-amber-600">
+                              <span className="size-1.5 rounded-full bg-amber-500"></span>
+                              Đã hoàn thành
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-[10px] font-bold text-emerald-600">
+                              <span className="size-1.5 rounded-full bg-emerald-500"></span>
+                              Đang học
+                            </span>
+                          )}
+                        </td>
+
+                        <td className="text-slate-400 font-medium">
+                          {new Date(item.enrolledAt).toLocaleDateString("vi-VN")}
+                        </td>
+
+                        <td className="py-3.5 text-right pr-3">
+                          <button
+                            type="button"
+                            className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition cursor-pointer"
                           >
-                            {student.name
-                              .split(" ")
-                              .map((n) => n[0])
-                              .join("")
-                              .slice(0, 2)}
-                          </span>
-                          <span className="font-bold text-slate-900">
-                            {student.name}
-                          </span>
-                        </div>
-                      </td>
+                            <MoreHorizontal className="size-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
 
-                      <td className="py-3.5 px-4 text-slate-500">
-                        {student.email}
-                      </td>
+          {/* --- 5. PAGINATION PHÂN TRANG --- */}
+          <div className="flex items-center justify-between border-t border-slate-100 pt-3">
+            <p className="text-[11px] font-semibold text-slate-400">
+              Hiển thị {paginatedEnrollments.length} trên tổng số {filteredEnrollments.length} học viên
+            </p>
 
-                      <td className="py-3.5 px-4 font-medium text-slate-800">
-                        {student.course}
-                      </td>
-
-                      {/* Trạng thái Huy hiệu Pill */}
-                      <td className="py-3.5 px-4">
-                        <span
-                          className={`px-2.5 py-1 rounded-full text-[10px] font-bold inline-flex items-center gap-1.5 ${
-                            student.status === "Đang học"
-                              ? "bg-emerald-50 text-emerald-600 border border-emerald-200"
-                              : "bg-amber-50 text-amber-600 border border-amber-200"
-                          }`}
-                        >
-                          <span
-                            className={`size-1.5 rounded-full ${
-                              student.status === "Đang học"
-                                ? "bg-emerald-500"
-                                : "bg-amber-500"
-                            }`}
-                          />
-                          {student.status}
-                        </span>
-                      </td>
-
-                      <td className="py-3.5 px-4 text-slate-500">
-                        {student.date}
-                      </td>
-
-                      <td className="py-3.5 px-4 text-center">
-                        <button className="p-1.5 rounded-lg border border-slate-200 text-slate-400 hover:text-slate-600 hover:bg-slate-50 cursor-pointer transition">
-                          <MoreHorizontal className="size-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Phân trang */}
-            <div className="p-4 border-t border-slate-100 flex items-center justify-end gap-1.5 text-xs">
+            <div className="flex items-center gap-1.5">
               <button
-                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                className="p-1.5 rounded-lg border border-slate-200 text-slate-400 hover:bg-slate-50 cursor-pointer"
+                type="button"
+                onClick={() => handlePageChange(currentPage - 1)}
+                disabled={currentPage === 1}
+                className="flex size-7 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <ChevronLeft className="size-4" />
               </button>
 
-              {[1, 2, 3, 4].map((page) => (
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => (
                 <button
-                  key={page}
-                  onClick={() => setCurrentPage(page)}
-                  className={`size-8 rounded-lg font-bold text-xs cursor-pointer ${
-                    currentPage === page
-                      ? "bg-blue-600 text-white"
-                      : "border border-slate-200 text-slate-600 hover:bg-slate-50"
+                  key={pageNum}
+                  type="button"
+                  onClick={() => handlePageChange(pageNum)}
+                  className={`flex size-7 items-center justify-center rounded-lg text-xs font-bold transition cursor-pointer ${
+                    currentPage === pageNum
+                      ? "bg-blue-600 text-white shadow-xs"
+                      : "text-slate-600 hover:bg-slate-100"
                   }`}
                 >
-                  {page}
+                  {pageNum}
                 </button>
               ))}
 
               <button
-                onClick={() => setCurrentPage((p) => Math.min(4, p + 1))}
-                className="p-1.5 rounded-lg border border-slate-200 text-slate-400 hover:bg-slate-50 cursor-pointer"
+                type="button"
+                onClick={() => handlePageChange(currentPage + 1)}
+                disabled={currentPage === totalPages}
+                className="flex size-7 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <ChevronRight className="size-4" />
               </button>
             </div>
           </div>
-        </main>
+        </div>
+
       </div>
-    </div>
+    </main>
   );
 }

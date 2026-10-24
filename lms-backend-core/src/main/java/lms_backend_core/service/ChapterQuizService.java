@@ -29,12 +29,21 @@ public class ChapterQuizService {
     private final EnrollmentRepository enrollmentRepository;
     private final ChapterQuizQuestionRepository questionRepository;
     private final ChapterQuizAttemptRepository attemptRepository;
+    private final QuizRepository quizRepository;
 
     @Transactional(readOnly = true)
-    public ChapterQuizDtos.Availability availability(Long chapterId, Authentication authentication) {
+    public ChapterQuizDtos.Availability availability(
+            Long chapterId,
+            Long lessonId,
+            Authentication authentication) {
         enrolledStudent(chapterId, authentication);
+        Quiz quiz = getQuizForChapter(chapterId, lessonId);
+        List<QuestionBank> available = questionsForQuiz(quiz);
         return new ChapterQuizDtos.Availability(
-                chapterId, questionRepository.findDistinctQuestionsInChapter(chapterId).size());
+                chapterId,
+                available.size(),
+                quiz.getQuestionCount() == null ? 10 : quiz.getQuestionCount(),
+                quiz.getTimeLimitMinutes() == null ? 15 : quiz.getTimeLimitMinutes());
     }
 
     @Transactional
@@ -43,10 +52,13 @@ public class ChapterQuizService {
             ChapterQuizDtos.StartRequest request,
             Authentication authentication) {
         User student = enrolledStudent(chapterId, authentication);
-        List<QuestionBank> available = questionRepository.findDistinctQuestionsInChapter(chapterId);
-        if (request.questionCount() > available.size()) {
+        Quiz quiz = getQuizForChapter(chapterId, request.lessonId());
+        List<QuestionBank> available = questionsForQuiz(quiz);
+        int questionCount = quiz.getQuestionCount() == null ? 10 : quiz.getQuestionCount();
+        int timeLimitMinutes = quiz.getTimeLimitMinutes() == null ? 15 : quiz.getTimeLimitMinutes();
+        if (questionCount > available.size()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Requested question count exceeds the number of unique questions available in this chapter.");
+                    "The teacher-configured question count exceeds the available questions for this quiz.");
         }
         Collections.shuffle(available);
         OffsetDateTime startedAt = OffsetDateTime.now();
@@ -54,12 +66,13 @@ public class ChapterQuizService {
         ChapterQuizAttempt attempt = new ChapterQuizAttempt();
         attempt.setChapter(chapterRepository.getReferenceById(chapterId));
         attempt.setStudent(student);
-        attempt.setQuestionCount(request.questionCount());
-        int durationSeconds = Math.multiplyExact(request.timeLimitMinutes(), 60);
+        attempt.setQuizLesson(quiz.getLesson());
+        attempt.setQuestionCount(questionCount);
+        int durationSeconds = Math.multiplyExact(timeLimitMinutes, 60);
         attempt.setDurationSeconds(durationSeconds);
         attempt.setStartedAt(startedAt);
         attempt.setDeadlineAt(startedAt.plusSeconds(durationSeconds));
-        for (int i = 0; i < request.questionCount(); i++) {
+        for (int i = 0; i < questionCount; i++) {
             ChapterQuizAttemptQuestion attemptQuestion = new ChapterQuizAttemptQuestion();
             attemptQuestion.setAttempt(attempt);
             attemptQuestion.setQuestion(available.get(i));
@@ -137,6 +150,42 @@ public class ChapterQuizService {
             Authentication authentication) {
         User student = enrolledStudent(chapterId, authentication);
         ChapterQuizAttempt attempt = getForUpdate(chapterId, attemptId, student.getId());
+        return toAttemptStatus(attempt);
+    }
+
+    @Transactional
+    public ChapterQuizDtos.AttemptStatus activeAttempt(
+            Long chapterId,
+            Long lessonId,
+            Authentication authentication) {
+        User student = enrolledStudent(chapterId, authentication);
+        getQuizForChapter(chapterId, lessonId);
+        return attemptRepository
+                .findFirstByChapter_IdAndQuizLesson_IdAndStudent_IdAndSubmittedAtIsNullOrderByStartedAtDesc(
+                        chapterId, lessonId, student.getId())
+                .map(this::toAttemptStatus)
+                .orElse(null);
+    }
+
+    private Quiz getQuizForChapter(Long chapterId, Long lessonId) {
+        Quiz quiz = quizRepository.findByLessonId(lessonId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Quiz configuration not found."));
+        if (quiz.getLesson().getLessonType() != Lesson.LessonType.QUIZ
+                || !quiz.getLesson().getChapter().getId().equals(chapterId)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Quiz lesson does not belong to this chapter.");
+        }
+        return quiz;
+    }
+
+    private List<QuestionBank> questionsForQuiz(Quiz quiz) {
+        if (quiz.getSelectionMode() == Quiz.QuestionSelectionMode.MANUAL) {
+            return quiz.getQuestions() == null ? new ArrayList<>() : new ArrayList<>(quiz.getQuestions());
+        }
+        Course course = quiz.getLesson().getChapter().getCourse();
+        return questionRepository.findAvailableForCourse(course.getTeacher().getId(), course.getId());
+    }
+
+    private ChapterQuizDtos.AttemptStatus toAttemptStatus(ChapterQuizAttempt attempt) {
         if (attempt.getSubmittedAt() == null && !OffsetDateTime.now().isBefore(attempt.getDeadlineAt())) {
             finalizeAttempt(attempt, true);
         }

@@ -1,0 +1,30 @@
+D:\lms-project\
+├── lms-backend-core/                  (SPRING BOOT BACKEND)
+│   └── src/main/java/lms_backend_core/
+│       ├── config/
+│       │   └── SecurityConfig.java     # Cấu hình Spring Security, CORS & Filter JWT
+│       ├── controller/
+│       │   └── AuthController.java     # Tiếp nhận các HTTP Request (/api/auth/**)
+│       ├── dto/
+│       │   ├── AuthResponse.java       # Form dữ liệu trả về client (token, username...)
+│       │   ├── LoginRequest.java       # Form nhận username, password khi Đăng nhập
+│       │   └── RegisterRequest.java    # Form nhận thông tin khi Đăng ký
+│       ├── entity/
+│       │   ├── Role.java               # Enum phân quyền (STUDENT, INSTRUCTOR, ADMIN)
+│       │   └── User.java               # Map với bảng "users" trong Database PostgreSQL
+│       ├── repository/
+│       │   └── UserRepository.java     # Thao tác truy vấn Database (JPA/Hibernate)
+│       ├── security/
+│       │   ├── JwtAuthenticationFilter.java # Chặn & giải mã Token từ Header Request
+│       │   └── JwtTokenProvider.java   # Sinh (Generate) & Validate JWT Token
+│       └── service/
+│           └── AuthService.java        # Chứa toàn bộ Business Logic (Băm pass, Auth)
+│
+└── lms-frontend/                      (NEXT.JS FRONTEND - App Router)
+    └── src/
+        └── app/
+            ├── layout.tsx              # Khung Layout dùng chung cho toàn ứng dụng
+            ├── globals.css             # Cấu hình Tailwind CSS & Styles toàn cục
+            ├── page.tsx                # Trang Đăng nhập / Đăng ký (Auth Landing Page)
+            └── dashboard/
+                └── page.tsx            # Trang Dashboard Học viên (Bảo vệ bởi Token)

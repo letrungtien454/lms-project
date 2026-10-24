@@ -27,6 +27,7 @@ public class CourseController {
 
         // 1. Lấy tất cả khóa học đã xuất bản
         @GetMapping
+        @Transactional(readOnly = true)
         public ResponseEntity<List<CourseResponse>> getAllPublishedCourses() {
                 List<CourseResponse> courses = courseRepository.findByIsPublishedTrue()
                                 .stream()

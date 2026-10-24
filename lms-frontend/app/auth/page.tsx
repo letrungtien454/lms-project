@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation' // Để chuyển hướng trang
+import { saveAuthSession, type AuthRole } from '@/lib/auth-session'
+import { API_BASE_URL } from '@/lib/api'
 import {
   ArrowRight,
   BookOpen,
@@ -62,15 +64,26 @@ export default function Page() {
 
   const isSignUp = mode === 'signup'
 
-  const getPostLoginPath = () => {
+  const getPostLoginPath = (role: AuthRole) => {
+    const roleHome = role === 'ADMIN'
+      ? '/admin/dashboard'
+      : role === 'TEACHER'
+        ? '/teacher/dashboard'
+        : '/dashboard'
     const returnTo = new URLSearchParams(window.location.search).get('returnUrl')
-    if (!returnTo || !returnTo.startsWith('/') || returnTo.startsWith('//')) return '/dashboard'
+    if (!returnTo || !returnTo.startsWith('/') || returnTo.startsWith('//')) return roleHome
 
     const destination = new URL(returnTo, window.location.origin)
+    const permittedPrefix = role === 'ADMIN' ? '/admin/' : role === 'TEACHER' ? '/teacher/' : null
     return destination.origin === window.location.origin
+      && (!permittedPrefix || destination.pathname.startsWith(permittedPrefix))
+      && (role !== 'STUDENT' || !destination.pathname.startsWith('/admin/') && !destination.pathname.startsWith('/teacher/'))
       ? `${destination.pathname}${destination.search}${destination.hash}`
-      : '/dashboard'
+      : roleHome
   }
+
+  const isAuthRole = (role: string | undefined): role is AuthRole =>
+    role === 'ADMIN' || role === 'TEACHER' || role === 'STUDENT'
 
   useEffect(() => {
     if (!googleClientId) return
@@ -79,7 +92,7 @@ export default function Page() {
     const handleCredential = async (credential: string) => {
       setLoading(true)
       try {
-        const response = await fetch('http://localhost:8080/api/auth/google', {
+        const response = await fetch(`${API_BASE_URL}/api/auth/google`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ credential }),
@@ -91,17 +104,17 @@ export default function Page() {
           return
         }
 
-        const data: { token?: string; accessToken?: string; fullName?: string; email?: string } =
+        const data: { token?: string; accessToken?: string; fullName?: string; email?: string; role?: string } =
           await response.json()
         const token = data.token || data.accessToken
-        if (!token) {
-          alert('Đăng nhập Google thất bại: Không nhận được Token từ Server!')
+        if (!token || !isAuthRole(data.role)) {
+          alert('Đăng nhập Google thất bại: Server không trả về đầy đủ thông tin phiên đăng nhập.')
           return
         }
 
-        localStorage.setItem('accessToken', token)
+        saveAuthSession(token, data.role, data.fullName || data.email || '')
         alert(`Đăng nhập thành công! Xin chào ${data.fullName || data.email || ''}`)
-        router.push(getPostLoginPath())
+        router.replace(getPostLoginPath(data.role))
       } catch (error) {
         console.error('Lỗi kết nối API Google:', error)
         alert('Không thể kết nối tới Server Spring Boot! Vui lòng kiểm tra lại Backend Java.')
@@ -168,9 +181,9 @@ export default function Page() {
     e.preventDefault()
     setLoading(true)
 
-    const endpoint = isSignUp 
-      ? 'http://localhost:8080/api/auth/register' 
-      : 'http://localhost:8080/api/auth/login'
+    const endpoint = isSignUp
+      ? `${API_BASE_URL}/api/auth/register`
+      : `${API_BASE_URL}/api/auth/login`
 
     const payload = isSignUp 
       ? {
@@ -204,18 +217,23 @@ export default function Page() {
           // Đọc đúng token (chấp nhận cả 'token' lẫn 'accessToken')
           const token = data.token || data.accessToken
           
-          if (token) {
-            localStorage.setItem('accessToken', token)
+          if (token && isAuthRole(data.role)) {
+            saveAuthSession(token, data.role, data.fullName || data.email || '')
             alert(`Đăng nhập thành công! Xin chào ${data.fullName || data.email || ''}`)
-            router.push(getPostLoginPath())
+            router.replace(getPostLoginPath(data.role))
           } else {
-            alert('Đăng nhập thất bại: Không nhận được Token từ Server!')
+            alert('Đăng nhập thất bại: Server không trả về đầy đủ thông tin phiên đăng nhập.')
           }
         }
       } else {
         // Nếu Server trả về lỗi, đọc dưới dạng text an toàn
         const errorText = await response.text()
-        alert(`Lỗi từ Server: ${errorText || 'Sai thông tin hoặc tài khoản đã tồn tại!'}`)
+        const message = response.status === 401
+          ? 'Email hoặc mật khẩu không đúng, hoặc tài khoản chưa được kích hoạt.'
+          : response.status === 403
+            ? 'Tài khoản đã bị khóa hoặc không có quyền truy cập.'
+            : errorText || 'Không thể xử lý yêu cầu đăng nhập.'
+        alert(`Lỗi từ Server: ${message}`)
       }
     } catch (error) {
       console.error('Lỗi kết nối API:', error)

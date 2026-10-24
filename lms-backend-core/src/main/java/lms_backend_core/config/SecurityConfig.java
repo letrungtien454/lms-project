@@ -41,24 +41,38 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
+                
+                // --- Public Resources ---
+                .requestMatchers(HttpMethod.GET, "/uploads/**").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/payments/vnpay/ipn").permitAll()
+                .requestMatchers("/api/auth/**", "/api/courses", "/api/courses/**").permitAll()
+                
+                // --- Lesson Public Requests ---
                 .requestMatchers(HttpMethod.GET, "/api/lessons/*/attachments").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/lessons/*/quiz").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/lessons/*/comments").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/lessons/*/interactive-questions").permitAll()
-                .requestMatchers(HttpMethod.GET, "/api/payments/vnpay/ipn").permitAll()
-                .requestMatchers(HttpMethod.GET, "/uploads/**").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/lessons/*/attachments/*/download").permitAll()
+
+                // Các thao tác liên quan tới lượt làm bài Quiz yêu cầu đăng nhập
+                .requestMatchers("/api/chapters/*/summary-quiz/**").authenticated()
+
+                // --- Protected Endpoints ---
                 .requestMatchers(HttpMethod.GET, "/api/courses/*/progress").authenticated()
                 .requestMatchers("/api/lessons/**").authenticated()
-                .requestMatchers("/api/auth/**", "/api/courses", "/api/courses/**").permitAll()
+                .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                .requestMatchers("/api/teacher/**").hasRole("TEACHER")
+                .requestMatchers("/api/teacher-requests/**").authenticated()
                 .requestMatchers("/api/ai/**").authenticated()
                 .requestMatchers("/api/enrollments/**").authenticated()
+                
                 .anyRequest().authenticated()
             )
-            // Nếu gửi Token hỏng ở endpoint permitAll thì không chặn 403
             .exceptionHandling(exception -> exception
                 .authenticationEntryPoint((request, response, authException) -> {
-                    response.sendError(jakarta.servlet.http.HttpServletResponse.SC_UNAUTHORIZED, "Unauthorized");
+                    response.setStatus(jakarta.servlet.http.HttpServletResponse.SC_UNAUTHORIZED);
+                    response.setContentType("application/json;charset=UTF-8");
+                    response.getWriter().write("{\"message\":\"Phiên làm việc hết hạn hoặc chưa đăng nhập.\"}");
                 })
             )
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
@@ -70,7 +84,7 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(List.of("http://localhost:3000"));
-        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"));
+        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"));
         configuration.setAllowedHeaders(List.of("*"));
         configuration.setExposedHeaders(List.of("Authorization"));
         configuration.setAllowCredentials(true);

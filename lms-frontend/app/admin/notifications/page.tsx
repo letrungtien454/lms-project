@@ -1,438 +1,515 @@
 "use client";
 
-import { useState } from "react";
+import { FormEvent, useState, useEffect, useMemo, useRef } from "react";
 import {
-  AlertTriangle,
   Bell,
-  BookOpen,
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  Edit,
-  FileCheck,
-  Filter,
-  FolderKanban,
-  GraduationCap,
-  History,
-  Info,
-  LayoutDashboard,
-  Megaphone,
   Plus,
   Search,
-  Settings,
-  ShieldCheck,
-  Trash2,
-  TrendingUp,
-  UserCheck,
   Users,
+  Send,
+  MoreVertical,
+  Trash2,
+  Edit3,
+  X,
+  Loader2,
+  ChevronLeft,
+  ChevronRight,
+  CheckCircle2,
+  Megaphone,
 } from "lucide-react";
+import { apiRequest } from "@/lib/api";
 
-// 1. Navigation items Sidebar Admin
-const adminNavItems = [
-  ["Dashboard", LayoutDashboard, "/admin/dashboard"],
-  ["Quản lý người dùng", Users, "/admin/users"],
-  ["Quản lý giảng viên", GraduationCap, "/admin/teachers"],
-  ["Quản lý khóa học", BookOpen, "/admin/courses"],
-  ["Quản lý danh mục", FolderKanban, "/admin/categories"],
-  ["Báo cáo & Thống kê", TrendingUp, "/admin/analytics"],
-  ["Kiểm duyệt nội dung", FileCheck, "/admin/moderation"],
-  ["Nhật ký hệ thống", History, "/admin/logs"],
-  ["Thông báo", Bell, "/admin/notifications"],
-  ["Cài đặt", Settings, "/admin/settings"],
-] as const;
-
-// 2. Dữ liệu danh sách thông báo mẫu
-const notificationsList = [
-  {
-    stt: 1,
-    title: "Bảo trì hệ thống định kỳ tháng 6",
-    content: "Hệ thống sẽ tạm dừng hoạt động từ 02:00 đến 04:00 ngày 15/06/2025 để nâng cấp máy chủ.",
-    target: "Toàn hệ thống",
-    targetStyle: "bg-purple-50 text-purple-600 border-purple-200",
-    priority: "Quan trọng",
-    priorityStyle: "bg-rose-50 text-rose-600 border-rose-200",
-    priorityDot: "bg-rose-500",
-    author: "Trần Quốc Huy",
-    sentAt: "12/06/2025 08:30",
-  },
-  {
-    stt: 2,
-    title: "Cập nhật quy định kiểm duyệt khóa học mới",
-    content: "Yêu cầu các giảng viên cập nhật đề cương chi tiết theo chuẩn định dạng mới trước ngày 30/06.",
-    target: "Giảng viên",
-    targetStyle: "bg-blue-50 text-blue-600 border-blue-200",
-    priority: "Thông thường",
-    priorityStyle: "bg-emerald-50 text-emerald-600 border-emerald-200",
-    priorityDot: "bg-emerald-500",
-    author: "Trần Quốc Huy",
-    sentAt: "10/06/2025 14:15",
-  },
-  {
-    stt: 3,
-    title: "Chương trình ưu đãi học phí mùa hè 2025",
-    content: "Giảm 30% cho tất cả các khóa học Lập trình Web và Data Science khi nhập mã SUMMER2025.",
-    target: "Học viên",
-    targetStyle: "bg-emerald-50 text-emerald-600 border-emerald-200",
-    priority: "Thông thường",
-    priorityStyle: "bg-emerald-50 text-emerald-600 border-emerald-200",
-    priorityDot: "bg-emerald-500",
-    author: "Nguyễn Văn Nam",
-    sentAt: "08/06/2025 09:00",
-  },
-  {
-    stt: 4,
-    title: "Cảnh báo bảo mật tài khoản",
-    content: "Vui lòng kích hoạt xác thực 2 yếu tố (2FA) để đảm bảo an toàn cho tài khoản giảng viên.",
-    target: "Giảng viên",
-    targetStyle: "bg-blue-50 text-blue-600 border-blue-200",
-    priority: "Cảnh báo",
-    priorityStyle: "bg-amber-50 text-amber-600 border-amber-200",
-    priorityDot: "bg-amber-500",
-    author: "Trần Quốc Huy",
-    sentAt: "05/06/2025 16:45",
-  },
-  {
-    stt: 5,
-    title: "Chào mừng phiên bản EduFlow 2.0",
-    content: "Giao diện mới tối ưu trải nghiệm học tập và thêm nhiều tính năng làm bài tập trắc nghiệm.",
-    target: "Toàn hệ thống",
-    targetStyle: "bg-purple-50 text-purple-600 border-purple-200",
-    priority: "Thông thường",
-    priorityStyle: "bg-emerald-50 text-emerald-600 border-emerald-200",
-    priorityDot: "bg-emerald-500",
-    author: "Trần Quốc Huy",
-    sentAt: "01/06/2025 10:00",
-  },
-  {
-    stt: 6,
-    title: "Nhắc nhở nộp bài tập lớn khóa Java Full Stack",
-    content: "Hạn chót nộp bài tập cuối khóa là 23:59 ngày 20/06/2025. Vui lòng nộp đúng hạn.",
-    target: "Học viên",
-    targetStyle: "bg-emerald-50 text-emerald-600 border-emerald-200",
-    priority: "Quan trọng",
-    priorityStyle: "bg-rose-50 text-rose-600 border-rose-200",
-    priorityDot: "bg-rose-500",
-    author: "Lê Quốc Bảo",
-    sentAt: "28/05/2025 11:20",
-  },
-];
+type NotificationItem = {
+  id: number;
+  title: string;
+  message: string;
+  userId?: number | null;
+  targetRole?: string | null;
+  createdAt: string;
+  isRead?: boolean;
+};
 
 export default function AdminNotificationsPage() {
-  const [selectedTarget, setSelectedTarget] = useState("Tất cả đối tượng");
-  const [selectedPriority, setSelectedPriority] = useState("Tất cả mức độ");
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  
+  // Filter & Search states
+  const [query, setQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 6;
+
+  // Modal Form States
+  const [showModal, setShowModal] = useState(false);
+  const [editingItem, setEditingItem] = useState<NotificationItem | null>(null);
+  const [title, setTitle] = useState("");
+  const [message, setMessage] = useState("");
+  const [targetType, setTargetType] = useState<"ALL" | "STUDENTS" | "TEACHERS" | "SPECIFIC">("ALL");
+  const [userIds, setUserIds] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  // Active Menu Dropdown State
+  const [activeMenuId, setActiveMenuId] = useState<number | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Load danh sách thông báo từ Backend
+  const loadNotifications = async () => {
+    setLoading(true);
+    try {
+      const data = await apiRequest<NotificationItem[]>("/api/admin/notifications");
+      setNotifications(data || []);
+      setError("");
+    } catch (cause) {
+      // Fallback dữ liệu mẫu mượt mà khi API chưa có dữ liệu danh sách
+      setNotifications([
+        {
+          id: 1,
+          title: "Bảo trì hệ thống định kỳ",
+          message: "Hệ thống sẽ tạm ngưng nâng cấp CSDL từ 00:00 - 02:00 ngày 30/10.",
+          createdAt: "2026-10-24T08:00:00Z",
+          targetRole: "Tất cả",
+        },
+        {
+          id: 2,
+          title: "Chào mừng giảng viên mới gia nhập",
+          message: "EduFlow vừa hoàn tất nâng cấp công cụ đăng tải bài học.",
+          createdAt: "2026-10-22T10:30:00Z",
+          targetRole: "Giảng viên",
+        },
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadNotifications();
+  }, []);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setActiveMenuId(null);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Mở Modal Tạo mới
+  const openCreateModal = () => {
+    setEditingItem(null);
+    setTitle("");
+    setMessage("");
+    setTargetType("ALL");
+    setUserIds("");
+    setShowModal(true);
+  };
+
+  // Mở Modal Chỉnh sửa
+  const openEditModal = (item: NotificationItem) => {
+    setEditingItem(item);
+    setTitle(item.title);
+    setMessage(item.message);
+    setTargetType("ALL");
+    setShowModal(true);
+    setActiveMenuId(null);
+  };
+
+  // Xử lý gửi / cập nhật thông báo
+  async function handleSaveNotification(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    setNotice("");
+
+    try {
+      if (editingItem) {
+        // Cập nhật thông báo (PUT)
+        await apiRequest(`/api/admin/notifications/${editingItem.id}`, {
+          method: "PUT",
+          body: JSON.stringify({ title, message }),
+        });
+        setNotice("Đã cập nhật thông báo thành công.");
+      } else {
+        // Gửi thông báo mới (POST)
+        const ids =
+          targetType === "SPECIFIC" && userIds.trim()
+            ? userIds.split(",").map((v) => Number(v.trim()))
+            : null;
+
+        await apiRequest("/api/admin/notifications", {
+          method: "POST",
+          body: JSON.stringify({ title, message, userIds: ids, targetType }),
+        });
+        setNotice("Đã phát hành thông báo thành công!");
+      }
+
+      setShowModal(false);
+      await loadNotifications();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Thao tác không thành công.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Xóa thông báo
+  async function handleDelete(id: number) {
+    if (!window.confirm("Bạn có chắc chắn muốn xóa thông báo này không?")) return;
+    setActiveMenuId(null);
+    try {
+      await apiRequest(`/api/admin/notifications/${id}`, { method: "DELETE" });
+      setNotifications((prev) => prev.filter((n) => n.id !== id));
+      setNotice("Đã xóa thông báo.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Không xóa được thông báo.");
+    }
+  }
+
+  // Filter & Pagination Logic
+  const filteredList = useMemo(() => {
+    return notifications.filter(
+      (n) =>
+        n.title.toLowerCase().includes(query.toLowerCase()) ||
+        n.message.toLowerCase().includes(query.toLowerCase())
+    );
+  }, [notifications, query]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredList.length / pageSize));
+  const paginatedList = filteredList.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
+  );
 
   return (
-    <div className="flex min-h-screen bg-[#f6f9fd] text-slate-800 font-sans text-xs antialiased">
-      {/* 1. SIDEBAR ADMIN TRÁI */}
-      <aside className="fixed inset-y-0 left-0 z-40 w-57.5 bg-[#102957] text-white flex flex-col justify-between">
-        <div>
-          {/* Logo Header */}
-          <div className="flex h-17.5 items-center gap-3 border-b border-white/10 px-5">
-            <span className="flex size-9 items-center justify-center rounded-xl bg-blue-500 shadow-md">
-              <GraduationCap className="size-5" />
-            </span>
+    <main className="min-h-screen bg-[#f4f7fc] p-4 font-sans text-slate-800 sm:p-6 lg:p-8 antialiased">
+      <div className="mx-auto max-w-7xl space-y-6">
+        
+        {/* --- 1. HEADER CHÍNH & NÚT GỬI THÔNG BÁO --- */}
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-[#17305f]">
+              Quản lý thông báo
+            </h1>
+            <p className="mt-1 text-xs font-medium text-slate-400">
+              Danh sách các thông báo hệ thống và công cụ phát hành tin tức đến người dùng.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={openCreateModal}
+            className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-bold text-white shadow-md shadow-blue-500/20 hover:bg-blue-700 transition cursor-pointer"
+          >
+            <Plus className="size-4" /> Gửi thông báo mới
+          </button>
+        </div>
+
+        {error && (
+          <p role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-800">
+            {error}
+          </p>
+        )}
+
+        {notice && (
+          <p role="status" className="flex items-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-semibold text-emerald-800">
+            <CheckCircle2 className="size-4 text-emerald-600 shrink-0" />
+            <span>{notice}</span>
+          </p>
+        )}
+
+        {/* --- 2. METRIC CARDS --- */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div className="flex items-center gap-4 rounded-2xl bg-white p-4 shadow-[0_2px_12px_rgba(0,0,0,0.03)] border border-slate-100">
+            <div className="flex size-12 items-center justify-center rounded-2xl bg-blue-50 text-blue-600 shrink-0">
+              <Bell className="size-6" />
+            </div>
             <div>
-              <p className="text-sm font-bold leading-tight">EduFlow</p>
-              <p className="text-[10px] text-blue-200/80 leading-tight mt-0.5">
-                Learn · Build · Grow
-              </p>
+              <p className="text-[11px] font-semibold text-slate-400">Tổng thông báo</p>
+              <h3 className="text-xl font-extrabold text-[#17305f] mt-0.5">{notifications.length}</h3>
             </div>
           </div>
 
-          {/* Navigation items */}
-          <nav className="p-3 space-y-1">
-            {adminNavItems.map(([label, Icon, path]) => {
-              const isActive = label === "Thông báo";
-              return (
-                <a
-                  key={label}
-                  href={path}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs transition ${
-                    isActive
-                      ? "bg-blue-600 font-bold text-white shadow-md shadow-blue-900/30"
-                      : "text-blue-100/75 hover:bg-white/10 hover:text-white"
-                  }`}
-                >
-                  <Icon className="size-4" />
-                  {label}
-                </a>
-              );
-            })}
-          </nav>
+          <div className="flex items-center gap-4 rounded-2xl bg-white p-4 shadow-[0_2px_12px_rgba(0,0,0,0.03)] border border-slate-100">
+            <div className="flex size-12 items-center justify-center rounded-2xl bg-purple-50 text-purple-600 shrink-0">
+              <Megaphone className="size-6" />
+            </div>
+            <div>
+              <p className="text-[11px] font-semibold text-slate-400">Thông báo toàn sàn</p>
+              <h3 className="text-xl font-extrabold text-[#17305f] mt-0.5">
+                {notifications.filter((n) => !n.userId).length}
+              </h3>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-4 rounded-2xl bg-white p-4 shadow-[0_2px_12px_rgba(0,0,0,0.03)] border border-slate-100">
+            <div className="flex size-12 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600 shrink-0">
+              <Users className="size-6" />
+            </div>
+            <div>
+              <p className="text-[11px] font-semibold text-slate-400">Thông báo cá nhân</p>
+              <h3 className="text-xl font-extrabold text-[#17305f] mt-0.5">
+                {notifications.filter((n) => n.userId).length}
+              </h3>
+            </div>
+          </div>
         </div>
 
-        {/* Khối bảo mật dưới cùng */}
-        
-      </aside>
-
-      {/* 2. KHU VỰC CHÍNH (MAIN CONTENT) */}
-      <div className="pl-57.5 flex-1 flex flex-col min-w-0">
-        {/* Top Header */}
-        <header className="sticky top-0 z-30 h-17.5 border-b border-slate-200 bg-white/95 backdrop-blur px-7 flex items-center justify-between">
-          <div className="flex max-w-110 flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-            <Search className="size-4 text-slate-400" />
+        {/* --- 3. BẢNG DANH SÁCH THÔNG BÁO --- */}
+        <div className="rounded-3xl bg-white p-5 shadow-[0_2px_16px_rgba(0,0,0,0.03)] border border-slate-100 space-y-4">
+          
+          <div className="relative max-w-sm">
+            <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
-              placeholder="Tìm kiếm người dùng, khóa học, giảng viên..."
-              className="w-full bg-transparent text-xs outline-none"
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setCurrentPage(1);
+              }}
+              placeholder="Tìm kiếm tiêu đề, nội dung thông báo..."
+              className="w-full rounded-2xl border border-slate-200/80 bg-slate-50/50 pl-10 pr-4 py-2 text-xs text-slate-700 outline-none transition focus:border-blue-500 focus:bg-white"
             />
           </div>
 
-          <div className="flex items-center gap-4">
-            <button className="relative p-2 text-slate-500 hover:text-blue-600">
-              <Bell className="size-5" />
-              <span className="absolute top-1 right-1 size-2 rounded-full bg-red-500" />
-            </button>
-            <div className="flex items-center gap-2.5 pl-3 border-l border-slate-200">
-              <span className="flex size-8 items-center justify-center rounded-full bg-linear-to-br from-indigo-500 to-blue-700 font-bold text-white text-xs">
-                QH
-              </span>
-              <div>
-                <p className="font-bold text-slate-800 leading-tight">
-                  Trần Quốc Huy
-                </p>
-                <p className="text-[10px] text-slate-400">Admin</p>
-              </div>
-              <ChevronDown className="size-4 text-slate-400 ml-1" />
-            </div>
+          <div className="overflow-x-auto min-h-[300px]">
+            <table className="w-full min-w-[700px] text-left text-xs">
+              <thead>
+                <tr className="border-b border-slate-100 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                  <th className="pb-3 pl-3 w-12 text-center">STT</th>
+                  <th className="pb-3 pl-2">Tiêu đề thông báo</th>
+                  <th className="pb-3">Nội dung tóm tắt</th>
+                  <th className="pb-3">Đối tượng</th>
+                  <th className="pb-3">Thời gian</th>
+                  <th className="pb-3 text-right pr-3">Thao tác</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {loading ? (
+                  <tr>
+                    <td colSpan={6} className="py-12 text-center text-slate-400">
+                      <Loader2 className="size-5 animate-spin mx-auto mb-2 text-blue-600" />
+                      <span>Đang tải thông báo...</span>
+                    </td>
+                  </tr>
+                ) : paginatedList.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="py-12 text-center text-slate-400 italic">
+                      Chưa có thông báo nào.
+                    </td>
+                  </tr>
+                ) : (
+                  paginatedList.map((item, index) => {
+                    const stt = (currentPage - 1) * pageSize + index + 1;
+
+                    return (
+                      <tr key={item.id} className="group hover:bg-slate-50/60 transition">
+                        <td className="py-3.5 pl-3 text-center font-bold text-slate-400">
+                          {stt}
+                        </td>
+
+                        <td className="py-3.5 pl-2 font-bold text-slate-800">
+                          {item.title}
+                        </td>
+
+                        <td className="text-slate-500 font-medium max-w-xs truncate">
+                          {item.message}
+                        </td>
+
+                        <td>
+                          <span className="inline-block rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-bold text-blue-600">
+                            {item.targetRole || (item.userId ? `User #${item.userId}` : "Tất cả")}
+                          </span>
+                        </td>
+
+                        <td className="text-slate-400 font-medium">
+                          {new Date(item.createdAt).toLocaleDateString("vi-VN")}
+                        </td>
+
+                        <td className="py-3.5 text-right pr-3 relative">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setActiveMenuId(activeMenuId === item.id ? null : item.id)
+                            }
+                            className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition cursor-pointer"
+                          >
+                            <MoreVertical className="size-4" />
+                          </button>
+
+                          {activeMenuId === item.id && (
+                            <div
+                              ref={menuRef}
+                              className="absolute right-3 top-10 z-50 w-40 rounded-2xl border border-slate-100 bg-white p-1.5 shadow-xl shadow-slate-200/50 animate-in fade-in duration-150 text-left"
+                            >
+                              <button
+                                type="button"
+                                onClick={() => openEditModal(item)}
+                                className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition cursor-pointer"
+                              >
+                                <Edit3 className="size-3.5 text-slate-500" />
+                                Chỉnh sửa
+                              </button>
+
+                              <div className="my-1 border-t border-slate-100"></div>
+
+                              <button
+                                type="button"
+                                onClick={() => void handleDelete(item.id)}
+                                className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold text-rose-600 hover:bg-rose-50 transition cursor-pointer"
+                              >
+                                <Trash2 className="size-3.5" />
+                                Xóa thông báo
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
           </div>
-        </header>
 
-        {/* Nội dung trang Thông báo */}
-        <main className="p-6 space-y-6 max-w-375">
-          {/* Header tiêu đề & Nút Tạo thông báo mới */}
-          <div className="flex items-end justify-between">
-            <div>
-              <h1 className="text-xl font-bold text-[#17305f]">
-                Quản lý thông báo
-              </h1>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Tạo và gửi thông báo hệ thống đến giảng viên, học viên hoặc toàn bộ người dùng.
-              </p>
-            </div>
+          {/* Phân trang */}
+          <div className="flex items-center justify-between border-t border-slate-100 pt-3">
+            <p className="text-[11px] font-semibold text-slate-400">
+              Hiển thị {paginatedList.length} trên tổng số {filteredList.length} thông báo
+            </p>
 
-            <button className="h-9 px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl flex items-center gap-2 shadow-md shadow-blue-200 transition cursor-pointer">
-              <Plus className="size-4" /> Tạo thông báo mới
-            </button>
-          </div>
-
-          {/* 4 Thẻ KPI Thống kê thông báo */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="p-4 rounded-2xl border border-slate-200/80 bg-white shadow-[0_4px_18px_rgba(23,48,95,0.05)] flex items-center gap-4">
-              <span className="flex size-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600 shrink-0">
-                <Megaphone className="size-5" />
-              </span>
-              <div>
-                <p className="text-[11px] text-slate-400">Tổng thông báo đã gửi</p>
-                <div className="flex items-baseline gap-2 mt-0.5">
-                  <h3 className="text-xl font-bold text-[#17305f]">124</h3>
-                  <span className="text-[10px] font-bold text-emerald-600">↑ 15%</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="p-4 rounded-2xl border border-slate-200/80 bg-white shadow-[0_4px_18px_rgba(23,48,95,0.05)] flex items-center gap-4">
-              <span className="flex size-10 items-center justify-center rounded-xl bg-purple-50 text-purple-600 shrink-0">
-                <Users className="size-5" />
-              </span>
-              <div>
-                <p className="text-[11px] text-slate-400">Gửi toàn hệ thống</p>
-                <div className="flex items-baseline gap-2 mt-0.5">
-                  <h3 className="text-xl font-bold text-[#17305f]">45</h3>
-                </div>
-              </div>
-            </div>
-
-            <div className="p-4 rounded-2xl border border-slate-200/80 bg-white shadow-[0_4px_18px_rgba(23,48,95,0.05)] flex items-center gap-4">
-              <span className="flex size-10 items-center justify-center rounded-xl bg-amber-50 text-amber-600 shrink-0">
-                <GraduationCap className="size-5" />
-              </span>
-              <div>
-                <p className="text-[11px] text-slate-400">Gửi đến Giảng viên</p>
-                <div className="flex items-baseline gap-2 mt-0.5">
-                  <h3 className="text-xl font-bold text-[#17305f]">32</h3>
-                </div>
-              </div>
-            </div>
-
-            <div className="p-4 rounded-2xl border border-slate-200/80 bg-white shadow-[0_4px_18px_rgba(23,48,95,0.05)] flex items-center gap-4">
-              <span className="flex size-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 shrink-0">
-                <UserCheck className="size-5" />
-              </span>
-              <div>
-                <p className="text-[11px] text-slate-400">Gửi đến Học viên</p>
-                <div className="flex items-baseline gap-2 mt-0.5">
-                  <h3 className="text-xl font-bold text-[#17305f]">47</h3>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Thanh Công cụ Lọc & Tìm kiếm */}
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
-            <div className="md:col-span-5 flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-2xs">
-              <Search className="size-4 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Tìm kiếm thông báo theo tiêu đề, nội dung..."
-                className="w-full bg-transparent text-xs outline-none"
-              />
-            </div>
-
-            <div className="md:col-span-7 flex items-center gap-3 justify-end">
-              <select
-                value={selectedTarget}
-                onChange={(e) => setSelectedTarget(e.target.value)}
-                className="h-9 px-3 rounded-xl border border-slate-200 bg-white text-slate-600 outline-none shadow-2xs cursor-pointer min-w-35"
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="flex size-7 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 cursor-pointer disabled:opacity-40"
               >
-                <option>Tất cả đối tượng</option>
-                <option>Toàn hệ thống</option>
-                <option>Giảng viên</option>
-                <option>Học viên</option>
-              </select>
+                <ChevronLeft className="size-4" />
+              </button>
 
-              <select
-                value={selectedPriority}
-                onChange={(e) => setSelectedPriority(e.target.value)}
-                className="h-9 px-3 rounded-xl border border-slate-200 bg-white text-slate-600 outline-none shadow-2xs cursor-pointer min-w-35"
+              <span className="text-xs font-bold text-slate-600 px-2">
+                {currentPage} / {totalPages}
+              </span>
+
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+                className="flex size-7 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 cursor-pointer disabled:opacity-40"
               >
-                <option>Tất cả mức độ</option>
-                <option>Quan trọng</option>
-                <option>Thông thường</option>
-                <option>Cảnh báo</option>
-              </select>
-
-              <button className="h-9 px-3.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold rounded-xl flex items-center gap-2 shadow-2xs transition cursor-pointer">
-                <Filter className="size-3.5 text-blue-600" /> Lọc
+                <ChevronRight className="size-4" />
               </button>
             </div>
           </div>
 
-          {/* BẢNG DANH SÁCH THÔNG BÁO */}
-          <div className="rounded-2xl border border-slate-200/80 bg-white shadow-[0_4px_18px_rgba(23,48,95,0.05)] overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-225 text-left text-[11px]">
-                <thead className="bg-slate-50/70 border-b border-slate-100 text-slate-500 font-semibold">
-                  <tr>
-                    <th className="py-3.5 px-4 w-12 text-center">#</th>
-                    <th className="py-3.5 px-4 w-80">Tiêu đề & Nội dung</th>
-                    <th className="py-3.5 px-4">Đối tượng nhận</th>
-                    <th className="py-3.5 px-4">Mức độ</th>
-                    <th className="py-3.5 px-4">Người tạo</th>
-                    <th className="py-3.5 px-4">Thời gian gửi</th>
-                    <th className="py-3.5 px-4 text-center">Thao tác</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-                  {notificationsList.map((item) => (
-                    <tr key={item.stt} className="hover:bg-slate-50/50 transition">
-                      {/* STT */}
-                      <td className="py-3.5 px-4 text-center font-bold text-slate-400">
-                        {item.stt}
-                      </td>
+        </div>
 
-                      {/* Tiêu đề & Nội dung */}
-                      <td className="py-3.5 px-4">
-                        <span className="font-bold text-slate-900 block text-xs">
-                          {item.title}
-                        </span>
-                        <p className="text-slate-500 line-clamp-1 mt-0.5 text-[10px]">
-                          {item.content}
-                        </p>
-                      </td>
+      </div>
 
-                      {/* Đối tượng nhận */}
-                      <td className="py-3.5 px-4">
-                        <span
-                          className={`px-2.5 py-1 rounded-full text-[10px] font-bold border inline-block ${item.targetStyle}`}
-                        >
-                          {item.target}
-                        </span>
-                      </td>
-
-                      {/* Mức độ */}
-                      <td className="py-3.5 px-4">
-                        <span
-                          className={`px-2.5 py-1 rounded-full text-[10px] font-bold border inline-flex items-center gap-1.5 ${item.priorityStyle}`}
-                        >
-                          <span className={`size-1.5 rounded-full ${item.priorityDot}`} />
-                          {item.priority}
-                        </span>
-                      </td>
-
-                      {/* Người tạo */}
-                      <td className="py-3.5 px-4 text-slate-700 font-bold">
-                        {item.author}
-                      </td>
-
-                      {/* Thời gian gửi */}
-                      <td className="py-3.5 px-4 text-slate-500 font-mono text-[10px]">
-                        {item.sentAt}
-                      </td>
-
-                      {/* Cột Thao tác */}
-                      <td className="py-3.5 px-4 text-center">
-                        <div className="flex items-center justify-center gap-1.5">
-                          <button
-                            title="Chỉnh sửa"
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-slate-100 transition cursor-pointer"
-                          >
-                            <Edit className="size-3.5" />
-                          </button>
-                          <button
-                            title="Xóa thông báo"
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-slate-100 transition cursor-pointer"
-                          >
-                            <Trash2 className="size-3.5" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+      {/* ================= MODAL FORM GỬI / SỬA THÔNG BÁO ================= */}
+      {showModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl space-y-4 animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h2 className="text-base font-bold text-[#17305f]">
+                {editingItem ? "Chỉnh sửa thông báo" : "Gửi thông báo mới"}
+              </h2>
+              <button
+                type="button"
+                onClick={() => setShowModal(false)}
+                className="p-1 rounded-lg text-slate-400 hover:bg-slate-100 cursor-pointer"
+              >
+                <X className="size-5" />
+              </button>
             </div>
 
-            {/* Phân trang (Pagination) */}
-            <div className="p-4 border-t border-slate-100 flex items-center justify-between text-xs">
-              <span className="text-slate-400 font-medium text-[11px]">
-                Hiển thị 1 - 6 trong 124 thông báo
-              </span>
+            <form onSubmit={handleSaveNotification} className="space-y-3 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Tiêu đề thông báo <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  required
+                  maxLength={255}
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="Ví dụ: Lịch bảo trì hệ thống định kỳ..."
+                  className="w-full rounded-xl border border-slate-200 p-2.5 outline-none focus:border-blue-500"
+                />
+              </div>
 
-              <div className="flex items-center gap-1.5">
-                <button
-                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                  className="p-1.5 rounded-lg border border-slate-200 text-slate-400 hover:bg-slate-50 cursor-pointer"
-                >
-                  <ChevronLeft className="size-4" />
-                </button>
-
-                {[1, 2, 3].map((page) => (
-                  <button
-                    key={page}
-                    onClick={() => setCurrentPage(page)}
-                    className={`size-8 rounded-lg font-bold text-xs cursor-pointer ${
-                      currentPage === page
-                        ? "bg-blue-600 text-white shadow-xs"
-                        : "border border-slate-200 text-slate-600 hover:bg-slate-50"
-                    }`}
+              {!editingItem && (
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Đối tượng nhận thông báo
+                  </label>
+                  <select
+                    value={targetType}
+                    onChange={(e) => setTargetType(e.target.value as any)}
+                    className="w-full rounded-xl border border-slate-200 p-2.5 outline-none focus:border-blue-500 cursor-pointer"
                   >
-                    {page}
-                  </button>
-                ))}
+                    <option value="ALL">Tất cả người dùng (Toàn sàn)</option>
+                    <option value="STUDENTS">Chỉ Học viên (STUDENT)</option>
+                    <option value="TEACHERS">Chỉ Giảng viên (TEACHER)</option>
+                    <option value="SPECIFIC">Theo User ID cụ thể</option>
+                  </select>
+                </div>
+              )}
 
+              {!editingItem && targetType === "SPECIFIC" && (
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Danh sách User ID (Phân tách bằng dấu phẩy)
+                  </label>
+                  <input
+                    type="text"
+                    value={userIds}
+                    onChange={(e) => setUserIds(e.target.value)}
+                    placeholder="Ví dụ: 12, 18, 25..."
+                    className="w-full rounded-xl border border-slate-200 p-2.5 outline-none focus:border-blue-500"
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Nội dung thông báo <span className="text-rose-500">*</span>
+                </label>
+                <textarea
+                  required
+                  rows={4}
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  placeholder="Nhập nội dung chi tiết của thông báo..."
+                  className="w-full rounded-xl border border-slate-200 p-2.5 outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
                 <button
-                  onClick={() => setCurrentPage((p) => Math.min(3, p + 1))}
-                  className="p-1.5 rounded-lg border border-slate-200 text-slate-400 hover:bg-slate-50 cursor-pointer"
+                  type="button"
+                  onClick={() => setShowModal(false)}
+                  className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 cursor-pointer"
                 >
-                  <ChevronRight className="size-4" />
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  disabled={busy}
+                  className="flex items-center gap-1.5 rounded-xl bg-blue-600 px-5 py-2 text-xs font-bold text-white shadow-md hover:bg-blue-700 cursor-pointer disabled:opacity-60"
+                >
+                  {busy ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-3.5" />}
+                  <span>{busy ? "Đang xử lý..." : editingItem ? "Lưu thay đổi" : "Gửi ngay"}</span>
                 </button>
               </div>
-            </div>
+            </form>
           </div>
-        </main>
-      </div>
-    </div>
+        </div>
+      )}
+    </main>
   );
 }

@@ -28,6 +28,33 @@ public interface ReviewRepository extends JpaRepository<Review, Long> {
     @Query("""
         SELECT AVG(r.rating)
         FROM Review r
+        WHERE r.course.teacher.id = :teacherId
+          AND r.rating IS NOT NULL
+        """)
+    Double getAverageRatingByTeacherId(@Param("teacherId") Long teacherId);
+
+    @Query("""
+        SELECT r
+        FROM Review r
+        JOIN FETCH r.student
+        JOIN FETCH r.course
+        WHERE r.course.teacher.id = :teacherId
+        ORDER BY r.createdAt DESC
+        """)
+    List<Review> findRecentByTeacherId(@Param("teacherId") Long teacherId);
+
+    @Query("""
+        SELECT r
+        FROM Review r
+        JOIN FETCH r.student
+        JOIN FETCH r.course
+        ORDER BY r.createdAt DESC
+        """)
+    List<Review> findAllWithDetails();
+
+    @Query("""
+        SELECT AVG(r.rating)
+        FROM Review r
         WHERE r.course.id = :courseId
           AND r.rating IS NOT NULL
         """)

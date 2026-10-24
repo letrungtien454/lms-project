@@ -8,6 +8,7 @@ import lms_backend_core.entity.Review;
 import lms_backend_core.entity.ReviewHelpful;
 import lms_backend_core.entity.ReviewReply;
 import lms_backend_core.entity.ReviewReplyHelpful;
+import lms_backend_core.entity.Role;
 import lms_backend_core.entity.User;
 import lms_backend_core.repository.CourseRepository;
 import lms_backend_core.repository.EnrollmentRepository;
@@ -228,7 +229,10 @@ public class ReviewController {
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND, "Không tìm thấy đánh giá"));
 
-        requireEnrollment(user, review.getCourse().getId());
+        if (user.getRole() != Role.TEACHER
+                || !review.getCourse().getTeacher().getId().equals(user.getId())) {
+            requireEnrollment(user, review.getCourse().getId());
+        }
 
         if (request == null || request.comment() == null
                 || request.comment().isBlank()) {

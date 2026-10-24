@@ -29,6 +29,10 @@ public class ChapterQuizAttempt {
     @JoinColumn(name = "student_id", nullable = false)
     private User student;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "quiz_lesson_id")
+    private Lesson quizLesson;
+
     @Column(name = "question_count", nullable = false)
     private Integer questionCount;
 

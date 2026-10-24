@@ -16,14 +16,17 @@ public final class ChapterQuizDtos {
     }
 
     public record StartRequest(
-            @Min(1) @Max(500) int questionCount,
-            @Min(1) @Max(120) int timeLimitMinutes) {
+            @NotNull Long lessonId) {
     }
 
     public record Option(String id, String text) {
     }
 
-    public record Availability(Long chapterId, int availableQuestionCount) {
+    public record Availability(
+            Long chapterId,
+            int availableQuestionCount,
+            int questionCount,
+            int timeLimitMinutes) {
     }
 
     public record AttemptQuestion(Long id, String questionText, List<Option> options) {

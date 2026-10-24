@@ -1,10 +1,25 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { CheckCircle2, Clock3, Loader2, XCircle } from "lucide-react";
+import { useEffect, useRef, useState, useCallback } from "react";
+import { getAccessToken } from "@/lib/auth-session";
+import {
+  CheckCircle2,
+  Clock3,
+  Loader2,
+  XCircle,
+  Award,
+  AlertCircle,
+  RotateCcw,
+  ChevronLeft,
+  ChevronRight,
+  Send,
+  HelpCircle,
+  CheckSquare,
+} from "lucide-react";
 
 type QuizOption = { id: string; text: string };
 type QuizQuestion = { id: number | string; questionText: string; options: QuizOption[] };
+
 type QuizAttempt = {
   attemptId: number | string;
   chapterId: number | string;
@@ -14,6 +29,7 @@ type QuizAttempt = {
   expiresAt: string;
   questions: QuizQuestion[];
 };
+
 type QuizAnswerResult = {
   questionId: number | string;
   questionText: string;
@@ -22,6 +38,7 @@ type QuizAnswerResult = {
   explanation?: string | null;
   correct: boolean;
 };
+
 type QuizResult = {
   totalQuestions: number;
   correctCount: number;
@@ -31,8 +48,15 @@ type QuizResult = {
   autoSubmitted: boolean;
   answers: QuizAnswerResult[];
 };
+
 type AnswerSaveResponse = { submitted: boolean; result: QuizResult | null };
-type Availability = { chapterId: number | string; availableQuestionCount: number };
+type Availability = {
+  chapterId: number | string;
+  availableQuestionCount: number;
+  questionCount: number;
+  timeLimitMinutes: number;
+};
+
 type AttemptStatus = {
   attemptId: number | string;
   submitted: boolean;
@@ -45,7 +69,7 @@ type AttemptStatus = {
 const API_URL = "http://localhost:8080";
 
 async function apiRequest<T>(url: string, init: RequestInit = {}): Promise<T> {
-  const token = localStorage.getItem("accessToken");
+  const token = getAccessToken();
   const response = await fetch(url, {
     ...init,
     signal: init.signal ?? AbortSignal.timeout(10000),
@@ -55,7 +79,7 @@ async function apiRequest<T>(url: string, init: RequestInit = {}): Promise<T> {
       ...init.headers,
     },
   });
-  const payload = await response.json().catch(() => null) as { message?: string } | null;
+  const payload = (await response.json().catch(() => null)) as { message?: string } | null;
   if (!response.ok) {
     throw new Error(payload?.message || `Yêu cầu thất bại (HTTP ${response.status}).`);
   }
@@ -63,21 +87,25 @@ async function apiRequest<T>(url: string, init: RequestInit = {}): Promise<T> {
 }
 
 function formatTime(totalSeconds: number) {
-  const minutes = Math.floor(totalSeconds / 60).toString().padStart(2, "0");
+  const minutes = Math.floor(totalSeconds / 60)
+    .toString()
+    .padStart(2, "0");
   const seconds = (totalSeconds % 60).toString().padStart(2, "0");
   return `${minutes}:${seconds}`;
 }
 
 export default function ChapterSummaryQuiz({
   chapterId,
+  lessonId,
   chapterTitle,
 }: {
   chapterId: number | string;
+  lessonId: number | string;
   chapterTitle?: string;
 }) {
   const [availableCount, setAvailableCount] = useState(0);
   const [questionCount, setQuestionCount] = useState(10);
-  const [timeLimitMinutes, setTimeLimitMinutes] = useState(30);
+  const [timeLimitMinutes, setTimeLimitMinutes] = useState(15);
   const [attempt, setAttempt] = useState<QuizAttempt | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [result, setResult] = useState<QuizResult | null>(null);
@@ -86,31 +114,73 @@ export default function ChapterSummaryQuiz({
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
+
   const attemptStartedAt = useRef<number>(0);
   const autoSubmitStarted = useRef(false);
   const submitRef = useRef<() => Promise<void>>(async () => {});
   const answerSaves = useRef(new Map<string, Promise<void>>());
 
-  useEffect(() => {
-    let cancelled = false;
+  // 1. TẢI DỮ LIỆU CÂU HỎI & PHỤC HỒI LƯỢT LÀM DANG DỞ KHI F5 TRANG
+  const initializeQuiz = useCallback(async () => {
     setIsLoading(true);
-    void apiRequest<Availability>(`${API_URL}/api/chapters/${chapterId}/summary-quiz/attempts/availability`)
-      .then((data) => {
-        if (cancelled) return;
-        setAvailableCount(data.availableQuestionCount);
-        setQuestionCount(Math.min(10, data.availableQuestionCount));
-      })
-      .catch((requestError: unknown) => {
-        if (!cancelled) setError(requestError instanceof Error ? requestError.message : "Không tải được ngân hàng câu hỏi.");
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, [chapterId]);
+    setError("");
+    try {
+      // 1.1 Kiểm tra lượt làm bài chưa nộp dang dở (Active Attempt)
+      const activeAttemptStatus = await apiRequest<AttemptStatus | null>(
+        `${API_URL}/api/chapters/${chapterId}/summary-quiz/attempts/active?lessonId=${lessonId}`
+      );
 
+      if (activeAttemptStatus && !activeAttemptStatus.submitted && activeAttemptStatus.questions.length > 0) {
+        // Phục hồi lượt làm cũ
+        const expiresAtDate = Date.parse(activeAttemptStatus.expiresAt);
+        const remainingSecs = Math.max(0, Math.ceil((expiresAtDate - Date.now()) / 1000));
+
+        if (remainingSecs > 0) {
+          const restoredAnswers: Record<string, string> = {};
+          activeAttemptStatus.savedAnswers?.forEach((ans) => {
+            restoredAnswers[String(ans.questionId)] = ans.selectedOption;
+          });
+
+          setAttempt({
+            attemptId: activeAttemptStatus.attemptId,
+            chapterId,
+            questionCount: activeAttemptStatus.questions.length,
+            timeLimitMinutes: Math.ceil(remainingSecs / 60),
+            startedAt: new Date().toISOString(),
+            expiresAt: activeAttemptStatus.expiresAt,
+            questions: activeAttemptStatus.questions,
+          });
+          setAnswers(restoredAnswers);
+          setSecondsLeft(remainingSecs);
+          setIsLoading(false);
+          return;
+        }
+      }
+
+      // 1.2 Nếu không có lượt dang dở, lấy số lượng câu hỏi có sẵn
+      const availability = await apiRequest<Availability>(
+        `${API_URL}/api/chapters/${chapterId}/summary-quiz/attempts/availability?lessonId=${lessonId}`
+      );
+      setAvailableCount(availability.availableQuestionCount);
+      setQuestionCount(availability.questionCount);
+      setTimeLimitMinutes(availability.timeLimitMinutes);
+    } catch (reqErr) {
+      setError(reqErr instanceof Error ? reqErr.message : "Không thể tải ngân hàng câu hỏi.");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [chapterId, lessonId]);
+
+  useEffect(() => {
+    void initializeQuiz();
+  }, [initializeQuiz]);
+
+  // 2. BẮT ĐẦU TẠO ĐỀ KIỂM TRA MỚI
   const startAttempt = async () => {
-    if (questionCount < 1 || questionCount > availableCount) return;
+    if (questionCount < 1 || questionCount > availableCount) {
+      setError("Số câu hỏi đã cấu hình vượt quá ngân hàng hiện có. Hãy báo giảng viên kiểm tra cấu hình.");
+      return;
+    }
     setIsLoading(true);
     setError("");
     try {
@@ -118,15 +188,18 @@ export default function ChapterSummaryQuiz({
         `${API_URL}/api/chapters/${chapterId}/summary-quiz/attempts`,
         {
           method: "POST",
-          body: JSON.stringify({ questionCount, timeLimitMinutes }),
-        },
+          body: JSON.stringify({ lessonId }),
+        }
       );
       setAttempt(nextAttempt);
       setAnswers({});
       setResult(null);
       setCurrentIndex(0);
       autoSubmitStarted.current = false;
-      const deadlineSeconds = Math.max(0, Math.ceil((Date.parse(nextAttempt.expiresAt) - Date.now()) / 1000));
+      const deadlineSeconds = Math.max(
+        0,
+        Math.ceil((Date.parse(nextAttempt.expiresAt) - Date.now()) / 1000)
+      );
       setSecondsLeft(deadlineSeconds || nextAttempt.timeLimitMinutes * 60);
       attemptStartedAt.current = Date.parse(nextAttempt.startedAt);
     } catch (requestError) {
@@ -136,6 +209,7 @@ export default function ChapterSummaryQuiz({
     }
   };
 
+  // 3. NỘP BÀI KIỂM TRA
   const submitAttempt = async () => {
     if (!attempt || isSubmitting || result) return;
     setIsSubmitting(true);
@@ -147,7 +221,7 @@ export default function ChapterSummaryQuiz({
         {
           method: "POST",
           body: JSON.stringify({ answers }),
-        },
+        }
       );
       setResult(submitted);
     } catch (requestError) {
@@ -158,24 +232,34 @@ export default function ChapterSummaryQuiz({
   };
   submitRef.current = submitAttempt;
 
+  // 4. LƯU CÂU TRẢ LỜI LÊN SERVER (AUTO-SAVE)
   const saveAnswer = (questionId: number | string, selectedOption: string) => {
     if (!attempt) return;
     const key = String(questionId);
     let pending: Promise<void>;
     const previousSave = answerSaves.current.get(key) ?? Promise.resolve();
-    pending = previousSave.catch(() => {}).then(() => apiRequest<AnswerSaveResponse>(
-      `${API_URL}/api/chapters/${chapterId}/summary-quiz/attempts/${attempt.attemptId}/answers/${questionId}`,
-      { method: "PUT", body: JSON.stringify({ selectedOption }) },
-    )).then((response) => {
-      if (response.submitted && response.result) {
-        autoSubmitStarted.current = true;
-        setResult(response.result);
-      }
-    }).catch((requestError: unknown) => {
-      setError(requestError instanceof Error ? requestError.message : "Không thể lưu câu trả lời.");
-    }).finally(() => {
-      if (answerSaves.current.get(key) === pending) answerSaves.current.delete(key);
-    });
+
+    pending = previousSave
+      .catch(() => {})
+      .then(() =>
+        apiRequest<AnswerSaveResponse>(
+          `${API_URL}/api/chapters/${chapterId}/summary-quiz/attempts/${attempt.attemptId}/answers/${questionId}`,
+          { method: "PUT", body: JSON.stringify({ selectedOption }) }
+        )
+      )
+      .then((response) => {
+        if (response.submitted && response.result) {
+          autoSubmitStarted.current = true;
+          setResult(response.result);
+        }
+      })
+      .catch((requestError: unknown) => {
+        setError(requestError instanceof Error ? requestError.message : "Không thể lưu câu trả lời.");
+      })
+      .finally(() => {
+        if (answerSaves.current.get(key) === pending) answerSaves.current.delete(key);
+      });
+
     answerSaves.current.set(key, pending);
   };
 
@@ -184,6 +268,7 @@ export default function ChapterSummaryQuiz({
     saveAnswer(questionId, selectedOption);
   };
 
+  // 5. ĐỒNG HỒ ĐẾM NGƯỢC VÀ TỰ ĐỘNG NỘP
   useEffect(() => {
     if (!attempt || result || isSubmitting) return;
     if (secondsLeft <= 0) {
@@ -193,162 +278,347 @@ export default function ChapterSummaryQuiz({
       }
       return;
     }
-    const timer = window.setTimeout(() => setSecondsLeft((remaining) => Math.max(0, remaining - 1)), 1000);
+    const timer = window.setTimeout(
+      () => setSecondsLeft((remaining) => Math.max(0, remaining - 1)),
+      1000
+    );
     return () => window.clearTimeout(timer);
   }, [attempt, result, secondsLeft, isSubmitting]);
 
   const currentQuestion = attempt?.questions[currentIndex];
   const currentAnswer = currentQuestion ? answers[String(currentQuestion.id)] : undefined;
 
+  // ==================== SCREEN 1: MÀN HÌNH CHUẨN BỊ (SETUP) ====================
   if (!attempt) {
     return (
-      <section className="mx-auto w-full max-w-3xl rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8">
-        <div className="flex items-center gap-3">
-          <span className="flex size-11 items-center justify-center rounded-xl bg-blue-50 text-blue-700">?</span>
-          <div>
-            <h2 className="text-lg font-bold text-slate-900">Kiểm tra kiến thức{chapterTitle ? ` · ${chapterTitle}` : ""}</h2>
-            <p className="mt-1 text-sm text-slate-500">Chọn số câu và thời gian làm bài trước khi bắt đầu.</p>
+      <section className="mx-auto w-full max-w-2xl rounded-3xl border border-slate-200/80 bg-white p-6 shadow-xs sm:p-8">
+        <div className="flex flex-col items-center text-center">
+          <div className="mb-4 flex size-16 items-center justify-center rounded-2xl bg-blue-50 text-blue-600 shadow-xs">
+            <Award className="size-8" />
           </div>
+          <span className="rounded-full bg-blue-50 px-3 py-1 text-[10px] font-extrabold uppercase tracking-widest text-blue-600">
+            Bài kiểm tra tổng kết
+          </span>
+          <h2 className="mt-2 text-xl font-black text-[#17305f]">
+            {chapterTitle || "Tổng kết chương học"}
+          </h2>
+          <p className="mt-1.5 max-w-md text-xs text-slate-500">
+            Đánh giá mức độ hiểu bài của bạn bằng các câu hỏi và thời gian do giảng viên cấu hình cho bài kiểm tra này.
+          </p>
         </div>
 
         {isLoading ? (
-          <div className="flex items-center gap-2 py-8 text-sm text-slate-500"><Loader2 className="size-4 animate-spin" /> Đang tải câu hỏi...</div>
+          <div className="flex items-center justify-center gap-2 py-12 text-xs font-semibold text-slate-400">
+            <Loader2 className="size-5 animate-spin text-blue-600" /> Đang kiểm tra ngân hàng câu hỏi...
+          </div>
         ) : availableCount === 0 ? (
-          <p className="mt-6 rounded-xl bg-amber-50 p-4 text-sm text-amber-800">Chương này chưa có câu hỏi trong ngân hàng của các bài học.</p>
+          <div className="my-6 flex items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-5 text-xs text-amber-800">
+            <AlertCircle className="size-5 shrink-0 text-amber-600" />
+            <span>Bài kiểm tra này hiện chưa có câu hỏi trắc nghiệm phù hợp.</span>
+          </div>
         ) : (
-          <div className="mt-7 grid gap-4 sm:grid-cols-2">
-            <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700">
-              Số câu hỏi (tối đa {availableCount})
-              <input
-                type="number"
-                min={1}
-                max={availableCount}
-                value={questionCount}
-                onChange={(event) => setQuestionCount(Math.min(availableCount, Math.max(1, Number(event.target.value) || 1)))}
-                className="h-11 rounded-xl border border-slate-200 px-3 outline-none focus:border-blue-500"
-              />
-            </label>
-            <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700">
-              Thời gian làm bài
-              <select value={timeLimitMinutes} onChange={(event) => setTimeLimitMinutes(Number(event.target.value))} className="h-11 rounded-xl border border-slate-200 bg-white px-3 outline-none focus:border-blue-500">
-                {[10, 15, 20, 30, 45, 60].map((minutes) => <option key={minutes} value={minutes}>{minutes} phút</option>)}
-              </select>
-            </label>
+          <div className="mt-6 space-y-6">
+            {/* Khối hiển thị 4 chỉ số tổng quan */}
+            <div className="grid grid-cols-2 gap-3 border-y border-slate-100 py-4 text-left sm:grid-cols-4">
+              <div className="flex items-center gap-2.5">
+                <HelpCircle className="size-5 shrink-0 text-blue-500" />
+                <div>
+                  <p className="text-[10px] font-bold uppercase text-slate-400">Số câu hỏi</p>
+                  <p className="text-xs font-black text-slate-800">{questionCount} câu</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2.5 border-l border-slate-100 sm:pl-3">
+                <Clock3 className="size-5 shrink-0 text-amber-500" />
+                <div>
+                  <p className="text-[10px] font-bold uppercase text-slate-400">Thời gian</p>
+                  <p className="text-xs font-black text-slate-800">{timeLimitMinutes} phút</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2.5 border-l border-slate-100 pl-3">
+                <Award className="size-5 shrink-0 text-emerald-500" />
+                <div>
+                  <p className="text-[10px] font-bold uppercase text-slate-400">Điểm đạt</p>
+                  <p className="text-xs font-black text-slate-800">80%</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2.5 border-l border-slate-100 pl-3">
+                <CheckSquare className="size-5 shrink-0 text-purple-500" />
+                <div>
+                  <p className="text-[10px] font-bold uppercase text-slate-400">Hình thức</p>
+                  <p className="text-xs font-black text-slate-800">Trắc nghiệm</p>
+                </div>
+              </div>
+            </div>
+
+            
+            {questionCount > availableCount && (
+              <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                Cấu hình hiện yêu cầu {questionCount} câu nhưng ngân hàng chỉ có {availableCount} câu. Vui lòng báo giảng viên cập nhật cấu hình.
+              </div>
+            )}
+
+            {error && (
+              <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-700">
+                {error}
+              </div>
+            )}
+
+            <button
+              type="button"
+              disabled={isLoading || availableCount === 0 || questionCount > availableCount}
+              onClick={() => void startAttempt()}
+              className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-blue-600 py-3 text-xs font-bold text-white shadow-md shadow-blue-200 transition hover:bg-blue-700 disabled:opacity-50"
+            >
+              <Send className="size-4" /> Bắt đầu làm bài
+            </button>
           </div>
         )}
-
-        {error && <p role="alert" className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-        <button
-          type="button"
-          disabled={isLoading || availableCount === 0 || questionCount < 1 || questionCount > availableCount}
-          onClick={() => void startAttempt()}
-          className="mt-6 rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          Bắt đầu làm bài
-        </button>
-        <p className="mt-3 text-xs text-slate-400">Câu hỏi được chọn ngẫu nhiên từ ngân hàng của các bài học trong chương.</p>
       </section>
     );
   }
 
+  // ==================== SCREEN 2: MÀN HÌNH KẾT QUẢ (RESULT) ====================
   if (result) {
+    const isPassed = Number(result.score) >= 80;
+
     return (
-      <section className="mx-auto w-full max-w-4xl rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8">
-        <h2 className="text-xl font-bold text-slate-900">Kết quả bài kiểm tra</h2>
-        <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <section className="mx-auto w-full max-w-4xl rounded-3xl border border-slate-200/80 bg-white p-6 shadow-xs sm:p-8 space-y-6">
+        <div className="text-center max-w-md mx-auto space-y-3">
+          <div
+            className={`mx-auto flex size-16 items-center justify-center rounded-full ${
+              isPassed ? "bg-emerald-100 text-emerald-600" : "bg-rose-100 text-rose-600"
+            }`}
+          >
+            {isPassed ? <CheckCircle2 className="size-8" /> : <AlertCircle className="size-8" />}
+          </div>
+          <h2 className="text-lg font-black text-slate-900">
+            {isPassed ? "Chúc mừng! Bạn đã hoàn thành xuất sắc" : "Chưa đạt yêu cầu tối thiểu"}
+          </h2>
+          <p className="text-xs text-slate-500">
+            Thời gian hoàn thành: <strong>{formatTime(result.elapsedSeconds)}</strong>
+            {result.autoSubmitted && (
+              <span className="block text-amber-600 font-semibold mt-1">
+                (Đã tự động nộp khi hết giờ)
+              </span>
+            )}
+          </p>
+        </div>
+
+        {/* Bảng 4 ô thống kê kết quả */}
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {[
-            ["Tổng số câu", result.totalQuestions],
-            ["Số câu đúng", result.correctCount],
-            ["Số câu sai", result.incorrectCount],
-            ["Điểm", `${result.score}%`],
-          ].map(([label, value]) => (
-            <div key={label} className="rounded-xl bg-slate-50 p-4">
-              <p className="text-xs text-slate-500">{label}</p><p className="mt-1 text-lg font-bold text-slate-900">{value}</p>
+            ["Tổng số câu", result.totalQuestions, "bg-slate-50 text-slate-800"],
+            ["Số câu đúng", result.correctCount, "bg-emerald-50 text-emerald-700"],
+            ["Số câu sai", result.incorrectCount, "bg-rose-50 text-rose-700"],
+            ["Điểm số", `${result.score}%`, isPassed ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"],
+          ].map(([label, val, style]) => (
+            <div key={String(label)} className={`rounded-2xl p-4 text-center ${style}`}>
+              <p className="text-[10px] font-semibold text-slate-400 uppercase">{label}</p>
+              <p className="mt-1 text-xl font-black">{val}</p>
             </div>
           ))}
         </div>
-        <p className="mt-3 text-sm text-slate-500">Thời gian làm bài: {formatTime(result.elapsedSeconds)}</p>
-        {result.autoSubmitted && <p className="mt-2 text-xs font-semibold text-amber-700">Bài làm đã được nộp tự động khi hết giờ.</p>}
-        <div className="mt-6 space-y-4">
-          {result.answers.map((answer, index) => {
-            const question = attempt.questions.find((item) => String(item.id) === String(answer.questionId));
-            const correctOption = question?.options.find((option) => option.id === answer.correctOption);
-            const selectedOption = question?.options.find((option) => option.id === answer.selectedOption);
-            const correct = answer.correct;
-            return (
-              <article key={answer.questionId} className="rounded-xl border border-slate-200 p-4">
-                <div className="flex items-start gap-2">
-                  {correct ? <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600" /> : <XCircle className="mt-0.5 size-4 shrink-0 text-red-500" />}
-                  <div className="min-w-0">
-                    <h3 className="text-sm font-bold text-slate-900">Câu {index + 1}. {answer.questionText}</h3>
-                    <p className="mt-2 text-xs text-slate-600">Bạn chọn: {selectedOption?.text ?? "Chưa trả lời"}</p>
-                    <p className="mt-1 text-xs font-semibold text-emerald-700">Đáp án đúng: {correctOption?.text ?? answer?.correctOption}</p>
-                    {answer?.explanation && <p className="mt-2 text-xs leading-5 text-slate-500">{answer.explanation}</p>}
+
+        {/* Xem lại chi tiết từng đáp án */}
+        <div className="space-y-3 pt-2">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+            Chi tiết đáp án & Giải thích
+          </h3>
+
+          <div className="space-y-3 max-h-100 overflow-y-auto pr-1">
+            {result.answers.map((ans, idx) => {
+              const q = attempt.questions.find((item) => String(item.id) === String(ans.questionId));
+              const correctOpt = q?.options.find((o) => o.id === ans.correctOption);
+              const selectedOpt = q?.options.find((o) => o.id === ans.selectedOption);
+
+              return (
+                <article
+                  key={ans.questionId}
+                  className={`rounded-2xl border p-4 text-xs space-y-2 ${
+                    ans.correct ? "border-emerald-200 bg-emerald-50/30" : "border-rose-200 bg-rose-50/30"
+                  }`}
+                >
+                  <div className="flex items-start gap-2.5">
+                    {ans.correct ? (
+                      <CheckCircle2 className="size-4 text-emerald-600 shrink-0 mt-0.5" />
+                    ) : (
+                      <XCircle className="size-4 text-rose-500 shrink-0 mt-0.5" />
+                    )}
+                    <div className="space-y-1 min-w-0">
+                      <p className="font-bold text-slate-900">
+                        Câu {idx + 1}: {ans.questionText}
+                      </p>
+                      <p className="text-slate-600">
+                        Bạn chọn:{" "}
+                        <span className={ans.correct ? "font-bold text-emerald-700" : "font-bold text-rose-600"}>
+                          {selectedOpt ? `${selectedOpt.id}. ${selectedOpt.text}` : "Bỏ trống"}
+                        </span>
+                      </p>
+                      {!ans.correct && (
+                        <p className="font-bold text-emerald-700">
+                          Đáp án đúng: {correctOpt ? `${correctOpt.id}. ${correctOpt.text}` : ans.correctOption}
+                        </p>
+                      )}
+                      {ans.explanation && (
+                        <p className="mt-1 text-[11px] text-slate-500 bg-white p-2.5 rounded-xl border border-slate-200/60 leading-relaxed">
+                          💡 <strong>Giải thích:</strong> {ans.explanation}
+                        </p>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </article>
-            );
-          })}
+                </article>
+              );
+            })}
+          </div>
         </div>
-        <button type="button" onClick={() => { setAttempt(null); setResult(null); setError(""); }} className="mt-6 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">
-          Làm đề mới
+
+        <button
+          type="button"
+          onClick={() => {
+            setAttempt(null);
+            setResult(null);
+            setError("");
+            void initializeQuiz();
+          }}
+          className="flex items-center justify-center gap-2 w-full rounded-2xl border border-slate-200 py-3 text-xs font-bold text-slate-700 hover:bg-slate-50 cursor-pointer"
+        >
+          <RotateCcw className="size-4" /> Làm đề khác
         </button>
       </section>
     );
   }
 
+  // ==================== SCREEN 3: MÀN HÌNH LÀM BÀI (DOING QUIZ) ====================
   return (
-    <section className="mx-auto w-full max-w-4xl rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-lg font-bold text-slate-900">Kiểm tra kiến thức{chapterTitle ? ` · ${chapterTitle}` : ""}</h2>
-        <div className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-bold ${secondsLeft <= 60 ? "bg-red-50 text-red-700" : "bg-blue-50 text-blue-700"}`}>
-          <Clock3 className="size-4" /> {formatTime(secondsLeft)}
+    <section className="mx-auto w-full max-w-4xl rounded-3xl border border-slate-200/80 bg-white p-6 shadow-xs sm:p-8 space-y-5">
+      {/* Header & Đồng hồ đếm ngược */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4">
+        <div>
+          <span className="text-[10px] font-bold uppercase text-blue-600 bg-blue-50 px-2 py-0.5 rounded">
+            Đang làm bài
+          </span>
+          <h2 className="text-sm font-bold text-slate-900 mt-1">
+            {chapterTitle || "Bài kiểm tra tổng kết"}
+          </h2>
         </div>
-      </header>
 
-      <nav className="mt-5 flex flex-wrap gap-2" aria-label="Điều hướng câu hỏi">
-        {attempt.questions.map((question, index) => {
-          const isAnswered = Boolean(answers[String(question.id)]);
+        <div
+          className={`flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold ${
+            secondsLeft <= 60
+              ? "bg-rose-50 text-rose-600 animate-pulse border border-rose-200"
+              : "bg-amber-50 text-amber-700 border border-amber-200"
+          }`}
+        >
+          <Clock3 className="size-4" />
+          <span>{formatTime(secondsLeft)}</span>
+        </div>
+      </div>
+
+      {/* Thanh danh sách nút câu hỏi (Question Navigation Grid) */}
+      <nav className="flex flex-wrap gap-1.5" aria-label="Điều hướng câu hỏi">
+        {attempt.questions.map((q, idx) => {
+          const isAns = Boolean(answers[String(q.id)]);
+          const isCurrent = currentIndex === idx;
+
           return (
             <button
-              key={question.id}
+              key={q.id}
               type="button"
-              aria-label={`Đi tới câu ${index + 1}${isAnswered ? ", đã trả lời" : ", chưa trả lời"}`}
-              aria-current={currentIndex === index ? "step" : undefined}
-              onClick={() => setCurrentIndex(index)}
-              className={`flex size-9 items-center justify-center rounded-lg border text-xs font-bold ${currentIndex === index ? "border-blue-600 ring-2 ring-blue-100" : "border-slate-200"} ${isAnswered ? "bg-slate-200 text-slate-700" : "bg-white text-slate-600"}`}
+              onClick={() => setCurrentIndex(idx)}
+              className={`flex size-8 items-center justify-center rounded-xl text-xs font-bold transition cursor-pointer ${
+                isCurrent
+                  ? "bg-blue-600 text-white shadow-xs"
+                  : isAns
+                  ? "bg-blue-50 text-blue-700 border border-blue-200"
+                  : "bg-slate-50 text-slate-500 border border-slate-200 hover:bg-slate-100"
+              }`}
             >
-              {index + 1}
+              {idx + 1}
             </button>
           );
         })}
       </nav>
 
+      {/* Khung nội dung câu hỏi hiện tại */}
       {currentQuestion && (
-        <div className="mt-6 rounded-xl border border-slate-200 p-4 sm:p-6">
-          <p className="text-xs font-bold uppercase tracking-wide text-blue-600">Câu {currentIndex + 1} / {attempt.questions.length}</p>
-          <h3 className="mt-3 text-base font-semibold leading-7 text-slate-900">{currentQuestion.questionText}</h3>
-          <div className="mt-5 space-y-2">
-            {currentQuestion.options.map((option) => (
-              <label key={option.id} className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 text-sm ${currentAnswer === option.id ? "border-blue-500 bg-blue-50" : "border-slate-200 hover:bg-slate-50"}`}>
-                <input type="radio" name={`question-${currentQuestion.id}`} checked={currentAnswer === option.id} onChange={() => chooseAnswer(currentQuestion.id, option.id)} className="mt-0.5 accent-blue-600" />
-                <span className="text-slate-700">{option.text}</span>
-              </label>
-            ))}
+        <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-5 space-y-4">
+          <div className="flex items-center justify-between text-xs text-slate-400">
+            <span className="font-bold text-blue-600">
+              Câu {currentIndex + 1} / {attempt.questions.length}
+            </span>
+          </div>
+
+          <h3 className="text-sm font-bold text-slate-900 leading-relaxed">
+            {currentQuestion.questionText}
+          </h3>
+
+          <div className="space-y-2 pt-1">
+            {currentQuestion.options.map((opt) => {
+              const isSelected = currentAnswer === opt.id;
+
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => chooseAnswer(currentQuestion.id, opt.id)}
+                  className={`flex w-full items-center gap-3 p-3.5 rounded-xl border text-xs font-semibold text-left transition cursor-pointer ${
+                    isSelected
+                      ? "border-blue-600 bg-blue-50 text-blue-700 font-bold"
+                      : "border-slate-200 bg-white text-slate-700 hover:bg-slate-100/60"
+                  }`}
+                >
+                  <span
+                    className={`flex size-6 shrink-0 items-center justify-center rounded-lg text-xs font-bold ${
+                      isSelected ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-500"
+                    }`}
+                  >
+                    {opt.id}
+                  </span>
+                  <span>{opt.text}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
       )}
 
-      {error && <p role="alert" className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-      <footer className="mt-5 flex flex-wrap items-center justify-between gap-3">
-        <button type="button" disabled={currentIndex === 0} onClick={() => setCurrentIndex((index) => index - 1)} className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 disabled:opacity-40">
-          ← Câu trước
+      {error && (
+        <div className="rounded-xl bg-red-50 p-3 text-xs font-semibold text-red-700 border border-red-200">
+          {error}
+        </div>
+      )}
+
+      {/* Footer Nút bấm điều hướng */}
+      <footer className="flex items-center justify-between border-t border-slate-100 pt-4">
+        <button
+          type="button"
+          disabled={currentIndex === 0}
+          onClick={() => setCurrentIndex((idx) => idx - 1)}
+          className="flex items-center gap-1 rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-40 cursor-pointer"
+        >
+          <ChevronLeft className="size-4" /> Câu trước
         </button>
-        {currentIndex < attempt.questions.length - 1 && secondsLeft > 0 ? (
-          <button type="button" onClick={() => setCurrentIndex((index) => index + 1)} className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-blue-700">Câu tiếp →</button>
+
+        {currentIndex < attempt.questions.length - 1 ? (
+          <button
+            type="button"
+            onClick={() => setCurrentIndex((idx) => idx + 1)}
+            className="flex items-center gap-1 rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700 cursor-pointer"
+          >
+            Câu tiếp <ChevronRight className="size-4" />
+          </button>
         ) : (
-          <button type="button" disabled={isSubmitting} onClick={() => void submitAttempt()} className="rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-50">
-            {isSubmitting ? "Đang nộp bài..." : "Nộp bài"}
+          <button
+            type="button"
+            disabled={isSubmitting}
+            onClick={() => void submitAttempt()}
+            className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-5 py-2 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-50 cursor-pointer"
+          >
+            {isSubmitting && <Loader2 className="size-4 animate-spin" />}
+            {isSubmitting ? "Đang nộp bài..." : "Nộp bài kiểm tra"}
           </button>
         )}
       </footer>

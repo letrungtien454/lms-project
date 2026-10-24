@@ -39,6 +39,10 @@ public class User {
     @Column(nullable = false, length = 20)
     private Role role;
 
+    @Builder.Default
+    @Column(name = "is_active")
+    private Boolean isActive = true;
+
     @Column(name = "created_at")
     private OffsetDateTime createdAt;
 

@@ -8,6 +8,11 @@ import java.util.List;
 
 public interface CourseRepository extends JpaRepository<Course, Long> {
     List<Course> findByIsPublishedTrue();
+    List<Course> findByTeacherIdOrderByCreatedAtDesc(Long teacherId);
+    List<Course> findAllByOrderByCreatedAtDesc();
+    long countByTeacherId(Long teacherId);
+    long countByIsPublishedTrue();
+    long countByIsPublishedFalse();
 
     // Fetch chapters here; lessons use subselect fetching to avoid multiple bag joins.
     @EntityGraph(attributePaths = {"chapters"})

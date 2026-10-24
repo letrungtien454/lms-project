@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { getAccessToken } from "@/lib/auth-session";
 import { Suspense } from "react";
 import { CheckCircle2, Loader2, RefreshCw, XCircle } from "lucide-react";
 
@@ -29,7 +30,7 @@ function VnpayReturnStatus() {
         return;
       }
 
-      const token = localStorage.getItem("accessToken");
+      const token = getAccessToken();
       if (!token) {
         setError("Vui lòng đăng nhập lại để kiểm tra trạng thái thanh toán.");
         setIsChecking(false);

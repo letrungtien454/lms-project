@@ -19,6 +19,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
 import java.security.GeneralSecurityException;
+import java.util.Locale;
 import java.util.UUID;
 
 @Service
@@ -34,13 +35,14 @@ public class AuthService {
     private String googleClientId;
 
     public String register(RegisterRequest request) {
-        if (userRepository.existsByEmail(request.getEmail())) {
-            throw new RuntimeException("Email is already in use");
+        String email = normalizeEmail(request.getEmail());
+        if (userRepository.existsByEmailIgnoreCase(email)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Email is already in use");
         }
 
         User user = User.builder()
                 .fullName(request.getFullName())
-                .email(request.getEmail())
+                .email(email)
                 .password(passwordEncoder.encode(request.getPassword()))
                 .role(Role.STUDENT) // Luôn gắn mặc định STUDENT ở Backend
                 .build();
@@ -50,11 +52,12 @@ public class AuthService {
     }
 
     public AuthResponse login(LoginRequest request) {
-        User user = userRepository.findByEmail(request.getEmail())
-                .orElseThrow(() -> new RuntimeException("Invalid email or password"));
+        User user = userRepository.findByEmailIgnoreCase(normalizeEmail(request.getEmail()))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid email or password"));
 
-        if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
-            throw new RuntimeException("Invalid email or password");
+        if (!Boolean.TRUE.equals(user.getIsActive())
+                || !passwordEncoder.matches(request.getPassword(), user.getPassword())) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid email or password");
         }
 
         String token = jwtTokenProvider.generateToken(user.getEmail(), user.getRole().name());
@@ -89,21 +92,26 @@ public class AuthService {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Google account email is not verified");
         }
 
-        User user = userRepository.findByEmail(email).orElseGet(() -> {
+        String normalizedEmail = normalizeEmail(email);
+        User user = userRepository.findByEmailIgnoreCase(normalizedEmail).orElseGet(() -> {
             String fullName = (String) payload.get("name");
             if (fullName == null || fullName.isBlank()) {
-                fullName = email.substring(0, email.indexOf('@'));
+                fullName = normalizedEmail.substring(0, normalizedEmail.indexOf('@'));
             }
 
             User newUser = User.builder()
                     .fullName(fullName)
-                    .email(email)
+                    .email(normalizedEmail)
                     .password(passwordEncoder.encode(UUID.randomUUID().toString()))
                     .avatarUrl((String) payload.get("picture"))
                     .role(Role.STUDENT)
                     .build();
             return userRepository.save(newUser);
         });
+
+        if (!Boolean.TRUE.equals(user.getIsActive())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "This account is disabled");
+        }
 
         String token = jwtTokenProvider.generateToken(user.getEmail(), user.getRole().name());
         return createAuthResponse(user, token);
@@ -116,5 +124,9 @@ public class AuthService {
                 .fullName(user.getFullName())
                 .role(user.getRole())
                 .build();
+    }
+
+    private String normalizeEmail(String email) {
+        return email.trim().toLowerCase(Locale.ROOT);
     }
 }

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import { clearAuthSession, getAccessToken } from "@/lib/auth-session";
 import {
   ArrowRight,
   Award,
@@ -864,7 +865,7 @@ export default function Page() {
   }, []);
 
   useEffect(() => {
-    const token = localStorage.getItem("accessToken");
+    const token = getAccessToken();
     if (token) {
       setIsLoggedIn(true);
       fetch("http://localhost:8080/api/users/me", {
@@ -879,7 +880,7 @@ export default function Page() {
   }, []);
 
   const handleLogout = () => {
-    localStorage.removeItem("accessToken");
+    clearAuthSession();
     setIsLoggedIn(false);
     setUser(null);
   };
@@ -972,6 +973,11 @@ export default function Page() {
                   {isLoggedIn ? "Bắt đầu học" : "Bắt đầu học tập"}
                 </a>
               </div>
+              {user?.role === "STUDENT" && (
+                <a href="/teacher-application" className="mt-4 inline-flex text-sm font-semibold text-blue-700 underline">
+                  Đăng ký trở thành giảng viên
+                </a>
+              )}
               <div className="mt-10 flex flex-wrap items-center gap-5 text-xs text-slate-500">
                 <div className="flex items-center gap-2">
                   <span className="flex size-7 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">

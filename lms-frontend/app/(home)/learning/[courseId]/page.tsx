@@ -6,6 +6,7 @@ import ChapterSummaryQuiz from "@/components/chapter-summary-quiz";
 import Hls from "hls.js";
 import { useState, useRef, useEffect, use, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { clearAuthSession, getAccessToken } from "@/lib/auth-session";
 import YouTube from "react-youtube";
 import {
   Award,
@@ -125,7 +126,7 @@ type ApiCourse = {
 
 const fetcher = (url: string) => {
   const headers = new Headers();
-  const token = typeof window !== "undefined" ? localStorage.getItem("accessToken") : null;
+  const token = getAccessToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
 
   return fetch(url, { headers }).then((response) => {
@@ -581,7 +582,7 @@ function LessonDiscussion({ lessonId, isLoggedIn, authHref }: { lessonId: string
 
   useEffect(() => {
     let isCurrent = true;
-    const token = localStorage.getItem("accessToken");
+    const token = getAccessToken();
     const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
     setIsLoading(true);
     setError("");
@@ -607,7 +608,7 @@ function LessonDiscussion({ lessonId, isLoggedIn, authHref }: { lessonId: string
   const submitComment = async (parentCommentId: number | null) => {
     const content = (parentCommentId === null ? draft : replyDraft).trim();
     if (!content || isSubmitting) return;
-    const token = localStorage.getItem("accessToken");
+    const token = getAccessToken();
     if (!token) {
       setError("Vui lòng đăng nhập để gửi câu hỏi hoặc trả lời.");
       return;
@@ -663,7 +664,7 @@ function LessonDiscussion({ lessonId, isLoggedIn, authHref }: { lessonId: string
   };
 
   const toggleHelpful = async (comment: LessonComment) => {
-    const token = localStorage.getItem("accessToken");
+    const token = getAccessToken();
     if (!token) {
       setError("Vui lòng đăng nhập để đánh dấu bình luận hữu ích.");
       return;
@@ -867,6 +868,9 @@ export default function LessonPage({ params }: { params: Promise<{ courseId: str
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [user, setUser] = useState<any>(null);
   const [isEnrolled, setIsEnrolled] = useState(false);
+  const [isUserLoaded, setIsUserLoaded] = useState(false);
+  const [isEnrollmentLoaded, setIsEnrollmentLoaded] = useState(false);
+  const [enrollmentCheckError, setEnrollmentCheckError] = useState("");
   const [activeLesson, setActiveLesson] = useState("");
   const [aiOpen, setAiOpen] = useState(false);
   const [lockModalOpen, setLockModalOpen] = useState(false);
@@ -983,7 +987,7 @@ export default function LessonPage({ params }: { params: Promise<{ courseId: str
   useEffect(() => {
     if (!activeLessonData) return;
     const controller = new AbortController();
-    const token = localStorage.getItem("accessToken");
+    const token = getAccessToken();
     const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
     setAttachments([]);
 
@@ -1111,7 +1115,7 @@ export default function LessonPage({ params }: { params: Promise<{ courseId: str
   const persistProgress = async (completed: boolean, playbackTime = 0) => {
     if (!activeLessonData) return;
     if (completed) completedLessonIdsRef.current.add(String(activeLessonData.id));
-    const token = localStorage.getItem("accessToken");
+    const token = getAccessToken();
     if (!token) return;
 
     try {
@@ -1285,7 +1289,7 @@ export default function LessonPage({ params }: { params: Promise<{ courseId: str
     setInteractiveAnswerError("");
     setInteractiveAnswerFeedback(null);
 
-    const token = localStorage.getItem("accessToken");
+    const token = getAccessToken();
     if (!token) {
       setInteractiveAnswerError("Vui lòng đăng nhập để lưu câu trả lời và tiếp tục bài học.");
       return;
@@ -1433,7 +1437,7 @@ export default function LessonPage({ params }: { params: Promise<{ courseId: str
 
   const handleSendAiQuestion = async () => {
     if (!aiInput.trim() || isAiLoading || !activeLessonData) return;
-    const token = localStorage.getItem("accessToken");
+    const token = getAccessToken();
     if (!token) {
       router.push(authHref);
       return;
@@ -1479,18 +1483,31 @@ export default function LessonPage({ params }: { params: Promise<{ courseId: str
   };
 
   useEffect(() => {
-    const token = localStorage.getItem("accessToken");
+    const token = getAccessToken();
+    setIsUserLoaded(false);
+    setIsEnrollmentLoaded(false);
+    setEnrollmentCheckError("");
     if (token) {
       setIsLoggedIn(true);
       fetch("http://localhost:8080/api/users/me", { headers: { Authorization: `Bearer ${token}` } })
         .then((res) => (res.ok ? res.json() : null))
         .then((data) => setUser(data))
-        .catch(() => {});
+        .catch(() => setUser(null))
+        .finally(() => setIsUserLoaded(true));
 
       fetch(`http://localhost:8080/api/enrollments/check/${courseId}`, { headers: { Authorization: `Bearer ${token}` } })
-        .then((res) => (res.ok ? res.json() : { isEnrolled: false }))
+        .then((res) => {
+          if (!res.ok) throw new Error(`Không thể kiểm tra đăng ký khóa học (HTTP ${res.status}).`);
+          return res.json();
+        })
         .then((data) => setIsEnrolled(Boolean(data.isEnrolled)))
-        .catch(() => setIsEnrolled(false));
+        .catch((error: unknown) => {
+          setIsEnrolled(false);
+          setEnrollmentCheckError(
+            error instanceof Error ? error.message : "Không thể kiểm tra đăng ký khóa học."
+          );
+        })
+        .finally(() => setIsEnrollmentLoaded(true));
 
       fetch(`http://localhost:8080/api/courses/${courseId}/progress`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -1512,6 +1529,12 @@ export default function LessonPage({ params }: { params: Promise<{ courseId: str
           setLessonProgress(progressByLesson);
         })
         .catch(() => {});
+    } else {
+      setIsLoggedIn(false);
+      setUser(null);
+      setIsEnrolled(false);
+      setIsUserLoaded(true);
+      setIsEnrollmentLoaded(true);
     }
   }, [courseId]);
 
@@ -1531,7 +1554,7 @@ export default function LessonPage({ params }: { params: Promise<{ courseId: str
   };
 
   const handleUploadedAttachment = async (attachment: ApiAttachment, isPdf: boolean) => {
-    const token = localStorage.getItem("accessToken");
+    const token = getAccessToken();
     if (!token) {
       setAttachmentError("Vui lòng đăng nhập để mở hoặc tải tài liệu của khóa học.");
       return;
@@ -1584,7 +1607,7 @@ export default function LessonPage({ params }: { params: Promise<{ courseId: str
         isLoggedIn={isLoggedIn}
         user={user}
         authHref={authHref}
-        onLogout={() => { localStorage.removeItem("accessToken"); setIsLoggedIn(false); }}
+        onLogout={() => { clearAuthSession(); setIsLoggedIn(false); }}
       />
       {isLoggedIn && <WorkspaceSidebar collapsed={collapsed} />}
 
@@ -1746,11 +1769,47 @@ export default function LessonPage({ params }: { params: Promise<{ courseId: str
 
               {/* Bố cục Linh hoạt: Nếu mở Code Workspace thì chia 2 cột */}
               {isQuizLesson && activeLessonData?.chapterId ? (
-                <ChapterSummaryQuiz
-                  key={activeLessonData.id}
-                  chapterId={activeLessonData.chapterId}
-                  chapterTitle={activeLessonData.chapterTitle}
-                />
+                !isEnrollmentLoaded || (isLoggedIn && !isUserLoaded) ? (
+                  <section className="mx-auto w-full max-w-2xl rounded-3xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
+                    Đang kiểm tra quyền truy cập bài kiểm tra...
+                  </section>
+                ) : !isLoggedIn ? (
+                  <section className="mx-auto w-full max-w-2xl rounded-3xl border border-amber-200 bg-amber-50 p-6 text-center">
+                    <Lock className="mx-auto size-8 text-amber-600" />
+                    <p className="mt-3 font-bold text-slate-800">Đăng nhập để làm bài tổng kết</p>
+                    <a href={authHref} className="mt-4 inline-flex rounded-xl bg-blue-600 px-5 py-2.5 text-xs font-bold text-white hover:bg-blue-700">
+                      Đăng nhập
+                    </a>
+                  </section>
+                ) : !user ? (
+                  <section role="alert" className="mx-auto w-full max-w-2xl rounded-3xl border border-red-200 bg-red-50 p-6 text-center text-sm text-red-700">
+                    Không xác minh được phiên đăng nhập. Vui lòng đăng nhập lại.
+                    <a href={authHref} className="ml-1 font-bold underline">Đăng nhập</a>
+                  </section>
+                ) : user.role !== "STUDENT" ? (
+                  <section className="mx-auto w-full max-w-2xl rounded-3xl border border-amber-200 bg-amber-50 p-6 text-center text-sm text-amber-900">
+                    Chỉ tài khoản học viên mới có thể làm bài tổng kết chương.
+                  </section>
+                ) : enrollmentCheckError ? (
+                  <section role="alert" className="mx-auto w-full max-w-2xl rounded-3xl border border-red-200 bg-red-50 p-6 text-center text-sm text-red-700">
+                    {enrollmentCheckError}
+                  </section>
+                ) : !isEnrolled ? (
+                  <section className="mx-auto w-full max-w-2xl rounded-3xl border border-amber-200 bg-amber-50 p-6 text-center">
+                    <Lock className="mx-auto size-8 text-amber-600" />
+                    <p className="mt-3 font-bold text-slate-800">Bạn cần đăng ký khóa học để làm bài tổng kết.</p>
+                    <a href={`/courses/${courseId}`} className="mt-4 inline-flex rounded-xl bg-blue-600 px-5 py-2.5 text-xs font-bold text-white hover:bg-blue-700">
+                      Xem khóa học
+                    </a>
+                  </section>
+                ) : (
+                  <ChapterSummaryQuiz
+                    key={activeLessonData.id}
+                    chapterId={activeLessonData.chapterId}
+                    lessonId={activeLessonData.id}
+                    chapterTitle={activeLessonData.chapterTitle}
+                  />
+                )
               ) : (
               <div className={`grid min-w-0 gap-6 transition-all ${shouldShowCodeWorkspace ? "grid-cols-1 lg:grid-cols-2" : "grid-cols-1"}`}>
 

@@ -1,403 +1,323 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
-  Bell,
-  BookOpen,
+  FileText,
+  Search,
+  Filter,
+  ShieldAlert,
+  Info,
+  AlertTriangle,
+  UserCheck,
   Calendar,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
-  FileCheck,
-  Filter,
-  FolderKanban,
-  GraduationCap,
-  History,
-  LayoutDashboard,
-  Plus,
-  Search,
-  Settings,
-  ShieldCheck,
-  TrendingUp,
-  Users,
+  Clock,
+  RefreshCw,
 } from "lucide-react";
 
-// 1. Navigation items Sidebar Admin
-const adminNavItems = [
-  ["Dashboard", LayoutDashboard, "/admin/dashboard"],
-  ["Quản lý người dùng", Users, "/admin/users"],
-  ["Quản lý giảng viên", GraduationCap, "/admin/teachers"],
-  ["Quản lý khóa học", BookOpen, "/admin/courses"],
-  ["Quản lý danh mục", FolderKanban, "/admin/categories"],
-  ["Báo cáo & Thống kê", TrendingUp, "/admin/analytics"],
-  ["Kiểm duyệt nội dung", FileCheck, "/admin/moderation"],
-  ["Nhật ký hệ thống", History, "/admin/logs"],
-  ["Thông báo", Bell, "/admin/notifications"],
-  ["Cài đặt", Settings, "/admin/settings"],
-] as const;
-
-// 2. Dữ liệu Nhật ký hệ thống chuẩn 100% theo ảnh mẫu
-const logsData = [
-  {
-    stt: 1,
-    time: "12/06/2025 10:24",
-    user: "Trần Quốc Huy",
-    role: "Admin",
-    action: "Đăng nhập",
-    actionStyle: "bg-emerald-50 text-emerald-600 border-emerald-200",
-    dotColor: "bg-emerald-500",
-    target: "Hệ thống",
-    ip: "171.234.56.78",
-    device: "Chrome - Win11",
-    detail: "Đăng nhập thành công",
-  },
-  {
-    stt: 2,
-    time: "12/06/2025 09:17",
-    user: "Nguyễn Văn Nam",
-    role: "Giảng viên",
-    action: "Tạo khóa học",
-    actionStyle: "bg-blue-50 text-blue-600 border-blue-200",
-    dotColor: "bg-blue-500",
-    target: "Khóa học #12",
-    ip: "113.162.45.90",
-    device: "Edge - Win11",
-    detail: "Java Full Stack",
-  },
-  {
-    stt: 3,
-    time: "11/06/2025 16:03",
-    user: "Lê Thị Mai",
-    role: "Giảng viên",
-    action: "Cập nhật bài học",
-    actionStyle: "bg-cyan-50 text-cyan-600 border-cyan-200",
-    dotColor: "bg-cyan-500",
-    target: "Bài học #58",
-    ip: "14.168.23.11",
-    device: "Chrome - Win10",
-    detail: "Sửa nội dung",
-  },
-  {
-    stt: 4,
-    time: "11/06/2025 14:22",
-    user: "Phạm Văn Tuấn",
-    role: "Giảng viên",
-    action: "Thêm câu hỏi",
-    actionStyle: "bg-teal-50 text-teal-600 border-teal-200",
-    dotColor: "bg-teal-500",
-    target: "Câu hỏi #241",
-    ip: "42.112.34.67",
-    device: "Firefox - Win11",
-    detail: "Trắc nghiệm",
-  },
-  {
-    stt: 5,
-    time: "11/06/2025 11:36",
-    user: "Nguyễn Thị Lan",
-    role: "Học viên",
-    action: "Đăng ký khóa học",
-    actionStyle: "bg-emerald-50 text-emerald-600 border-emerald-200",
-    dotColor: "bg-emerald-500",
-    target: "Khóa học #8",
-    ip: "118.69.12.45",
-    device: "Chrome - Android",
-    detail: "Python for Data Science",
-  },
-  {
-    stt: 6,
-    time: "10/06/2025 18:20",
-    user: "Trần Minh Hoàng",
-    role: "Học viên",
-    action: "Gửi bình luận",
-    actionStyle: "bg-indigo-50 text-indigo-600 border-indigo-200",
-    dotColor: "bg-indigo-500",
-    target: "Bài học #47",
-    ip: "27.72.23.18",
-    device: "Safari - iOS",
-    detail: "Thảo luận bài học",
-  },
-  {
-    stt: 7,
-    time: "10/06/2025 15:03",
-    user: "Admin",
-    role: "",
-    action: "Duyệt nội dung",
-    actionStyle: "bg-amber-50 text-amber-600 border-amber-200",
-    dotColor: "bg-amber-500",
-    target: "Khóa học #7",
-    ip: "171.234.56.78",
-    device: "Chrome - Win11",
-    detail: "Đã duyệt",
-  },
-  {
-    stt: 8,
-    time: "09/06/2025 09:12",
-    user: "Nguyễn Văn Nam",
-    role: "Giảng viên",
-    action: "Xóa bài học",
-    actionStyle: "bg-rose-50 text-rose-600 border-rose-200",
-    dotColor: "bg-rose-500",
-    target: "Bài học #32",
-    ip: "113.162.45.90",
-    device: "Edge - Win11",
-    detail: "Xóa nội dung",
-  },
-];
+type LogEntry = {
+  id: number;
+  actorName: string;
+  actorRole: "ADMIN" | "TEACHER" | "STUDENT" | "SYSTEM";
+  action: string;
+  target: string;
+  ipAddress: string;
+  level: "INFO" | "WARNING" | "ERROR";
+  createdAt: string;
+};
 
 export default function AdminLogsPage() {
+  const [query, setQuery] = useState("");
+  const [levelFilter, setLevelFilter] = useState("ALL");
   const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 8;
+
+  // Dữ liệu mẫu chuẩn hóa để hiển thị giao diện Nhật ký thực tế
+  const [logs] = useState<LogEntry[]>([
+    {
+      id: 1,
+      actorName: "Nguyễn Văn Nam",
+      actorRole: "ADMIN",
+      action: "Khóa tài khoản người dùng",
+      target: "User #102 (tran.a@example.com)",
+      ipAddress: "113.161.42.12",
+      level: "WARNING",
+      createdAt: "2026-10-24T18:30:00Z",
+    },
+    {
+      id: 2,
+      actorName: "Phạm Quốc Bảo",
+      actorRole: "TEACHER",
+      action: "Tạo khóa học mới",
+      target: "Khóa học: React & Next.js Pro",
+      ipAddress: "14.232.110.85",
+      level: "INFO",
+      createdAt: "2026-10-24T16:15:00Z",
+    },
+    {
+      id: 3,
+      actorName: "Hệ thống AI",
+      actorRole: "SYSTEM",
+      action: "Tạo vector nhúng khóa học",
+      target: "CourseDocumentVector #88",
+      ipAddress: "127.0.0.1",
+      level: "INFO",
+      createdAt: "2026-10-24T14:00:00Z",
+    },
+    {
+      id: 4,
+      actorName: "Trần Thị Bình",
+      actorRole: "ADMIN",
+      action: "Xóa đánh giá vi phạm",
+      target: "Review #45 (Học viên chửi thề)",
+      ipAddress: "113.161.42.12",
+      level: "ERROR",
+      createdAt: "2026-10-24T11:20:00Z",
+    },
+    {
+      id: 5,
+      actorName: "Lê Văn Đạt",
+      actorRole: "TEACHER",
+      action: "Cập nhật bài học",
+      target: "Lesson #301 - Rest API với Spring Boot",
+      ipAddress: "27.72.95.14",
+      level: "INFO",
+      createdAt: "2026-10-23T20:10:00Z",
+    },
+  ]);
+
+  // Logic lọc và tìm kiếm Nhật ký
+  const filteredLogs = useMemo(() => {
+    return logs.filter((log) => {
+      const matchesQuery =
+        log.actorName.toLowerCase().includes(query.toLowerCase()) ||
+        log.action.toLowerCase().includes(query.toLowerCase()) ||
+        log.target.toLowerCase().includes(query.toLowerCase());
+
+      const matchesLevel =
+        levelFilter === "ALL" || log.level === levelFilter;
+
+      return matchesQuery && matchesLevel;
+    });
+  }, [logs, query, levelFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredLogs.length / pageSize));
+  const paginatedLogs = filteredLogs.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
+  );
 
   return (
-    <div className="flex min-h-screen bg-[#f6f9fd] text-slate-800 font-sans text-xs antialiased">
-      {/* 1. SIDEBAR ADMIN TRÁI */}
-      <aside className="fixed inset-y-0 left-0 z-40 w-57.5 bg-[#102957] text-white flex flex-col justify-between">
-        <div>
-          {/* Logo Header */}
-          <div className="flex h-17.5 items-center gap-3 border-b border-white/10 px-5">
-            <span className="flex size-9 items-center justify-center rounded-xl bg-blue-500 shadow-md">
-              <GraduationCap className="size-5" />
-            </span>
-            <div>
-              <p className="text-sm font-bold leading-tight">EduFlow</p>
-              <p className="text-[10px] text-blue-200/80 leading-tight mt-0.5">
-                Learn · Build · Grow
-              </p>
-            </div>
+    <main className="min-h-screen bg-[#f4f7fc] p-4 font-sans text-slate-800 sm:p-6 lg:p-8 antialiased">
+      <div className="mx-auto max-w-7xl space-y-6">
+        
+        {/* --- 1. HEADER CHÍNH --- */}
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-[#17305f]">
+              Nhật ký hệ thống
+            </h1>
+            <p className="mt-1 text-xs font-medium text-slate-400">
+              Theo dõi lịch sử hoạt động, tác vụ quản trị và nhật ký truy cập trên EduFlow.
+            </p>
           </div>
 
-          {/* Navigation items */}
-          <nav className="p-3 space-y-1">
-            {adminNavItems.map(([label, Icon, path]) => {
-              const isActive = label === "Nhật ký hệ thống";
-              return (
-                <a
-                  key={label}
-                  href={path}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs transition ${
-                    isActive
-                      ? "bg-blue-600 font-bold text-white shadow-md shadow-blue-900/30"
-                      : "text-blue-100/75 hover:bg-white/10 hover:text-white"
-                  }`}
-                >
-                  <Icon className="size-4" />
-                  {label}
-                </a>
-              );
-            })}
-          </nav>
+          <button
+            type="button"
+            className="flex items-center gap-2 rounded-2xl border border-slate-200/80 bg-white px-4 py-2.5 text-xs font-bold text-slate-600 shadow-2xs hover:bg-slate-50 transition cursor-pointer"
+          >
+            <RefreshCw className="size-3.5" /> Làm mới
+          </button>
         </div>
 
-      </aside>
-
-      {/* 2. KHU VỰC CHÍNH (MAIN CONTENT) */}
-      <div className="pl-57.5 flex-1 flex flex-col min-w-0">
-        {/* Top Header */}
-        <header className="sticky top-0 z-30 h-17.5 border-b border-slate-200 bg-white/95 backdrop-blur px-7 flex items-center justify-between">
-          <div className="flex max-w-110 flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-            <Search className="size-4 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Tìm kiếm người dùng, khóa học, giảng viên..."
-              className="w-full bg-transparent text-xs outline-none"
-            />
-          </div>
-
-          <div className="flex items-center gap-4">
-            <button className="relative p-2 text-slate-500 hover:text-blue-600">
-              <Bell className="size-5" />
-              <span className="absolute top-1 right-1 size-2 rounded-full bg-red-500" />
-            </button>
-            <div className="flex items-center gap-2.5 pl-3 border-l border-slate-200">
-              <span className="flex size-8 items-center justify-center rounded-full bg-linear-to-br from-indigo-500 to-blue-700 font-bold text-white text-xs">
-                QH
-              </span>
-              <div>
-                <p className="font-bold text-slate-800 leading-tight">
-                  Trần Quốc Huy
-                </p>
-                <p className="text-[10px] text-slate-400">Admin</p>
-              </div>
-              <ChevronDown className="size-4 text-slate-400 ml-1" />
+        {/* --- 2. THẺ THỐNG KÊ LOGS --- */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div className="flex items-center gap-4 rounded-2xl bg-white p-4 shadow-[0_2px_12px_rgba(0,0,0,0.03)] border border-slate-100">
+            <div className="flex size-12 items-center justify-center rounded-2xl bg-blue-50 text-blue-600 shrink-0">
+              <FileText className="size-6" />
             </div>
-          </div>
-        </header>
-
-        {/* Nội dung trang Nhật ký hệ thống */}
-        <main className="p-6 space-y-5 max-w-375">
-          {/* Header tiêu đề & Nút Tạo thông báo mới */}
-          <div className="flex items-end justify-between">
             <div>
-              <h1 className="text-xl font-bold text-[#17305f]">
-                Nhật ký hệ thống
-              </h1>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Theo dõi các hoạt động và sự kiện diễn ra trong hệ thống.
-              </p>
+              <p className="text-[11px] font-semibold text-slate-400">Tổng ghi nhận</p>
+              <h3 className="text-xl font-extrabold text-[#17305f] mt-0.5">{logs.length} sự kiện</h3>
             </div>
-
-            <button className="h-9 px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl flex items-center gap-2 shadow-md shadow-blue-200 transition cursor-pointer">
-              <Plus className="size-4" /> Tạo thông báo mới
-            </button>
           </div>
 
-          {/* Thanh công cụ Tìm kiếm & Lọc thời gian */}
-          <div className="flex flex-col sm:flex-row items-center gap-3">
-            <div className="flex-1 flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-2xs w-full">
-              <Search className="size-4 text-slate-400" />
+          <div className="flex items-center gap-4 rounded-2xl bg-white p-4 shadow-[0_2px_12px_rgba(0,0,0,0.03)] border border-slate-100">
+            <div className="flex size-12 items-center justify-center rounded-2xl bg-amber-50 text-amber-500 shrink-0">
+              <AlertTriangle className="size-6" />
+            </div>
+            <div>
+              <p className="text-[11px] font-semibold text-slate-400">Cảnh báo (Warning)</p>
+              <h3 className="text-xl font-extrabold text-[#17305f] mt-0.5">
+                {logs.filter((l) => l.level === "WARNING").length}
+              </h3>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-4 rounded-2xl bg-white p-4 shadow-[0_2px_12px_rgba(0,0,0,0.03)] border border-slate-100">
+            <div className="flex size-12 items-center justify-center rounded-2xl bg-rose-50 text-rose-600 shrink-0">
+              <ShieldAlert className="size-6" />
+            </div>
+            <div>
+              <p className="text-[11px] font-semibold text-slate-400">Thao tác nhạy cảm (Error)</p>
+              <h3 className="text-xl font-extrabold text-[#17305f] mt-0.5">
+                {logs.filter((l) => l.level === "ERROR").length}
+              </h3>
+            </div>
+          </div>
+        </div>
+
+        {/* --- 3. BẢNG DANH SÁCH NHẬT KÝ --- */}
+        <div className="rounded-3xl bg-white p-5 shadow-[0_2px_16px_rgba(0,0,0,0.03)] border border-slate-100 space-y-4">
+          
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="relative flex-1 min-w-[240px] max-w-sm">
+              <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
-                placeholder="Tìm kiếm theo người dùng, hành động, IP..."
-                className="w-full bg-transparent text-xs outline-none"
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setCurrentPage(1);
+                }}
+                placeholder="Tìm theo người thực hiện, hành động..."
+                className="w-full rounded-2xl border border-slate-200/80 bg-white pl-10 pr-4 py-2 text-xs text-slate-700 outline-none transition focus:border-blue-500"
               />
             </div>
 
-            <div className="flex items-center gap-3 shrink-0 w-full sm:w-auto">
-              <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-white text-slate-600 text-xs shadow-2xs">
-                <span>Từ ngày</span>
-                <ChevronDown className="size-3.5 text-slate-400" />
-              </div>
-
-              <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-white text-slate-600 text-xs shadow-2xs">
-                <span>Đến ngày</span>
-                <ChevronDown className="size-3.5 text-slate-400" />
-              </div>
-
-              <button className="h-9 px-4 bg-white border border-slate-200 hover:bg-slate-50 text-blue-600 font-bold rounded-xl shadow-2xs transition cursor-pointer">
-                Lọc
-              </button>
-            </div>
+            <select
+              value={levelFilter}
+              onChange={(e) => {
+                setLevelFilter(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="rounded-2xl border border-slate-200/80 bg-white px-3.5 py-2 text-xs font-medium text-slate-600 outline-none cursor-pointer focus:border-blue-500"
+            >
+              <option value="ALL">Tất cả mức độ</option>
+              <option value="INFO">Thông tin (Info)</option>
+              <option value="WARNING">Cảnh báo (Warning)</option>
+              <option value="ERROR">Mức độ cao (Error)</option>
+            </select>
           </div>
 
-          {/* BẢNG DANH SÁCH NHẬT KÝ HỆ THỐNG */}
-          <div className="rounded-2xl border border-slate-200/80 bg-white shadow-[0_4px_18px_rgba(23,48,95,0.05)] overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-225 text-left text-[11px]">
-                <thead className="bg-slate-50/70 border-b border-slate-100 text-slate-500 font-semibold">
+          <div className="overflow-x-auto min-h-[350px]">
+            <table className="w-full min-w-[800px] text-left text-xs">
+              <thead>
+                <tr className="border-b border-slate-100 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                  <th className="pb-3 pl-3 w-12 text-center">#</th>
+                  <th className="pb-3 pl-2">Thực hiện bởi</th>
+                  <th className="pb-3">Hành động</th>
+                  <th className="pb-3">Đối tượng tác động</th>
+                  <th className="pb-3">Địa chỉ IP</th>
+                  <th className="pb-3">Mức độ</th>
+                  <th className="pb-3 text-right pr-3">Thời gian</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {paginatedLogs.length === 0 ? (
                   <tr>
-                    <th className="py-3.5 px-4 w-12 text-center">#</th>
-                    <th className="py-3.5 px-4">Thời gian</th>
-                    <th className="py-3.5 px-4">Người dùng</th>
-                    <th className="py-3.5 px-4">Hành động</th>
-                    <th className="py-3.5 px-4">Đối tượng</th>
-                    <th className="py-3.5 px-4">IP</th>
-                    <th className="py-3.5 px-4">Thiết bị</th>
-                    <th className="py-3.5 px-4">Chi tiết</th>
+                    <td colSpan={7} className="py-12 text-center text-slate-400 italic">
+                      Không tìm thấy nhật ký phù hợp.
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-                  {logsData.map((log) => (
-                    <tr key={log.stt} className="hover:bg-slate-50/50 transition">
-                      {/* STT */}
-                      <td className="py-3.5 px-4 text-center font-bold text-slate-400">
-                        {log.stt}
-                      </td>
+                ) : (
+                  paginatedLogs.map((log, index) => {
+                    const stt = (currentPage - 1) * pageSize + index + 1;
 
-                      {/* Thời gian */}
-                      <td className="py-3.5 px-4 text-slate-500 font-mono text-[10px]">
-                        {log.time}
-                      </td>
+                    return (
+                      <tr key={log.id} className="group hover:bg-slate-50/60 transition">
+                        <td className="py-3.5 pl-3 text-center font-bold text-slate-400">
+                          {stt}
+                        </td>
 
-                      {/* Người dùng */}
-                      <td className="py-3.5 px-4">
-                        <span className="font-bold text-slate-900 block">
-                          {log.user}
-                        </span>
-                        {log.role && (
-                          <span className="text-[10px] text-slate-400 block font-normal">
-                            ({log.role})
-                          </span>
-                        )}
-                      </td>
+                        <td className="py-3.5 pl-2 font-bold text-slate-800">
+                          <div className="flex items-center gap-2">
+                            <span className="flex size-7 items-center justify-center rounded-full bg-slate-100 text-[10px] font-extrabold text-slate-600">
+                              {log.actorName.charAt(0)}
+                            </span>
+                            <div>
+                              <p className="font-bold text-slate-800">{log.actorName}</p>
+                              <span className="text-[9px] text-slate-400 font-semibold">{log.actorRole}</span>
+                            </div>
+                          </div>
+                        </td>
 
-                      {/* Hành động */}
-                      <td className="py-3.5 px-4">
-                        <span
-                          className={`px-2.5 py-1 rounded-full text-[10px] font-bold border inline-flex items-center gap-1.5 ${log.actionStyle}`}
-                        >
-                          <span
-                            className={`size-1.5 rounded-full ${log.dotColor}`}
-                          />
+                        <td className="text-slate-700 font-semibold">
                           {log.action}
-                        </span>
-                      </td>
+                        </td>
 
-                      {/* Đối tượng */}
-                      <td className="py-3.5 px-4 text-slate-600 font-medium">
-                        {log.target}
-                      </td>
+                        <td className="text-slate-500 font-medium">
+                          {log.target}
+                        </td>
 
-                      {/* IP */}
-                      <td className="py-3.5 px-4 text-slate-500 font-mono text-[10px]">
-                        {log.ip}
-                      </td>
+                        <td className="text-slate-400 font-mono text-[11px]">
+                          {log.ipAddress}
+                        </td>
 
-                      {/* Thiết bị */}
-                      <td className="py-3.5 px-4 text-slate-500">
-                        {log.device}
-                      </td>
+                        <td>
+                          {log.level === "INFO" && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-0.5 text-[10px] font-bold text-blue-600">
+                              <Info className="size-3" /> Info
+                            </span>
+                          )}
+                          {log.level === "WARNING" && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-0.5 text-[10px] font-bold text-amber-600">
+                              <AlertTriangle className="size-3" /> Warning
+                            </span>
+                          )}
+                          {log.level === "ERROR" && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2.5 py-0.5 text-[10px] font-bold text-rose-600">
+                              <ShieldAlert className="size-3" /> Error
+                            </span>
+                          )}
+                        </td>
 
-                      {/* Chi tiết */}
-                      <td className="py-3.5 px-4 font-bold text-blue-600">
-                        {log.detail}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                        <td className="text-right pr-3 text-slate-400 font-medium">
+                          {new Date(log.createdAt).toLocaleString("vi-VN")}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
 
-            {/* Phân trang (Pagination) */}
-            <div className="p-4 border-t border-slate-100 flex items-center justify-end gap-1.5 text-xs">
+          {/* Phân trang */}
+          <div className="flex items-center justify-between border-t border-slate-100 pt-3">
+            <p className="text-[11px] font-semibold text-slate-400">
+              Hiển thị {paginatedLogs.length} trên tổng số {filteredLogs.length} nhật ký
+            </p>
+
+            <div className="flex items-center gap-1.5">
               <button
+                type="button"
                 onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                className="p-1.5 rounded-lg border border-slate-200 text-slate-400 hover:bg-slate-50 cursor-pointer"
+                disabled={currentPage === 1}
+                className="flex size-7 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 cursor-pointer disabled:opacity-40"
               >
                 <ChevronLeft className="size-4" />
               </button>
 
-              <button
-                onClick={() => setCurrentPage(1)}
-                className={`size-8 rounded-lg font-bold text-xs cursor-pointer ${
-                  currentPage === 1
-                    ? "bg-blue-600 text-white shadow-xs"
-                    : "border border-slate-200 text-slate-600 hover:bg-slate-50"
-                }`}
-              >
-                1
-              </button>
+              <span className="text-xs font-bold text-slate-600 px-2">
+                {currentPage} / {totalPages}
+              </span>
 
               <button
-                onClick={() => setCurrentPage(2)}
-                className={`size-8 rounded-lg font-bold text-xs cursor-pointer ${
-                  currentPage === 2
-                    ? "bg-blue-600 text-white shadow-xs"
-                    : "border border-slate-200 text-slate-600 hover:bg-slate-50"
-                }`}
-              >
-                2
-              </button>
-
-              <button
-                onClick={() => setCurrentPage(5)}
-                className={`size-8 rounded-lg font-bold text-xs cursor-pointer ${
-                  currentPage === 5
-                    ? "bg-blue-600 text-white shadow-xs"
-                    : "border border-slate-200 text-slate-600 hover:bg-slate-50"
-                }`}
-              >
-                5
-              </button>
-
-              <button
-                onClick={() => setCurrentPage((p) => Math.min(5, p + 1))}
-                className="p-1.5 rounded-lg border border-slate-200 text-slate-400 hover:bg-slate-50 cursor-pointer"
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+                className="flex size-7 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 cursor-pointer disabled:opacity-40"
               >
                 <ChevronRight className="size-4" />
               </button>
             </div>
           </div>
-        </main>
+
+        </div>
+
       </div>
-    </div>
+    </main>
   );
 }

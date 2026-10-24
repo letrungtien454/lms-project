@@ -12,6 +12,12 @@ import java.util.Optional;
 public interface ChapterQuizAttemptRepository extends JpaRepository<ChapterQuizAttempt, Long> {
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
+    Optional<ChapterQuizAttempt> findFirstByChapter_IdAndQuizLesson_IdAndStudent_IdAndSubmittedAtIsNullOrderByStartedAtDesc(
+            Long chapterId,
+            Long lessonId,
+            Long studentId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
             select a from ChapterQuizAttempt a
             where a.id = :attemptId and a.student.id = :studentId and a.chapter.id = :chapterId

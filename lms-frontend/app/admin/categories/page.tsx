@@ -1,375 +1,447 @@
 "use client";
 
-import { useState } from "react";
+import { FormEvent, useCallback, useEffect, useState, useMemo } from "react";
 import {
-  Bell,
-  BookOpen,
-  ChevronDown,
+  Search,
+  Plus,
+  Edit3,
+  Trash2,
+  X,
+  FolderTree,
   ChevronLeft,
   ChevronRight,
-  Code2,
-  Cpu,
-  Database,
-  Edit,
-  FileCheck,
-  FolderKanban,
-  Globe,
-  GraduationCap,
-  History,
-  Info,
-  LayoutDashboard,
-  Layers,
-  Lock,
-  MoreVertical,
-  Palette,
-  Plus,
-  Search,
-  Settings,
-  ShieldCheck,
-  Smartphone,
-  TrendingUp,
-  Users,
-  Wrench,
+  Loader2,
 } from "lucide-react";
+import { apiRequest } from "@/lib/api";
 
-// 1. Sidebar Nav items dành riêng cho Admin
-const adminNavItems = [
-  ["Dashboard", LayoutDashboard, "/admin/dashboard"],
-  ["Quản lý người dùng", Users, "/admin/users"],
-  ["Quản lý giảng viên", GraduationCap, "/admin/teachers"],
-  ["Quản lý khóa học", BookOpen, "/admin/courses"],
-  ["Quản lý danh mục", FolderKanban, "/admin/categories"],
-  ["Báo cáo & Thống kê", TrendingUp, "/admin/analytics"],
-  ["Kiểm duyệt nội dung", FileCheck, "/admin/moderation"],
-  ["Nhật ký hệ thống", History, "/admin/logs"],
-  ["Thông báo", Bell, "/admin/notifications"],
-  ["Cài đặt", Settings, "/admin/settings"],
-] as const;
+type Category = {
+  id: number;
+  name: string;
+  slug: string;
+  description: string | null;
+  courseCount?: number;
+  isActive?: boolean;
+};
 
-// 2. Dữ liệu danh sách danh mục chuẩn theo ảnh chụp mẫu
-const categoriesList = [
-  {
-    stt: 1,
-    name: "Lập trình",
-    slug: "lap-trinh",
-    desc: "Các khóa học về lập trình",
-    courseCount: 8,
-    status: "Hoạt động",
-    statusStyle: "bg-emerald-50 text-emerald-600 border-emerald-200",
-    dotColor: "bg-emerald-500",
-    icon: Code2,
-    iconTone: "from-blue-500 to-indigo-700",
-  },
-  {
-    stt: 2,
-    name: "Dữ liệu",
-    slug: "du-lieu",
-    desc: "Phân tích và xử lý dữ liệu",
-    courseCount: 5,
-    status: "Hoạt động",
-    statusStyle: "bg-emerald-50 text-emerald-600 border-emerald-200",
-    dotColor: "bg-emerald-500",
-    icon: Layers,
-    iconTone: "from-purple-500 to-indigo-800",
-  },
-  {
-    stt: 3,
-    name: "Web",
-    slug: "web",
-    desc: "Phát triển web, frontend, backend",
-    courseCount: 6,
-    status: "Hoạt động",
-    statusStyle: "bg-emerald-50 text-emerald-600 border-emerald-200",
-    dotColor: "bg-emerald-500",
-    icon: Globe,
-    iconTone: "from-sky-400 to-blue-700",
-  },
-  {
-    stt: 4,
-    name: "AI",
-    slug: "ai",
-    desc: "Trí tuệ nhân tạo, Machine Learning",
-    courseCount: 4,
-    status: "Hoạt động",
-    statusStyle: "bg-emerald-50 text-emerald-600 border-emerald-200",
-    dotColor: "bg-emerald-500",
-    icon: Cpu,
-    iconTone: "from-indigo-500 to-violet-800",
-  },
-  {
-    stt: 5,
-    name: "Công cụ",
-    slug: "cong-cu",
-    desc: "Công cụ và kỹ năng hỗ trợ",
-    courseCount: 3,
-    status: "Hoạt động",
-    statusStyle: "bg-emerald-50 text-emerald-600 border-emerald-200",
-    dotColor: "bg-emerald-500",
-    icon: Wrench,
-    iconTone: "from-slate-500 to-slate-800",
-  },
-  {
-    stt: 6,
-    name: "Di động",
-    slug: "di-dong",
-    desc: "Lập trình ứng dụng di động",
-    courseCount: 2,
-    status: "Hoạt động",
-    statusStyle: "bg-emerald-50 text-emerald-600 border-emerald-200",
-    dotColor: "bg-emerald-500",
-    icon: Smartphone,
-    iconTone: "from-rose-500 to-pink-700",
-  },
-  {
-    stt: 7,
-    name: "Cơ sở dữ liệu",
-    slug: "co-so-du-lieu",
-    desc: "Database, SQL, NoSQL",
-    courseCount: 4,
-    status: "Hoạt động",
-    statusStyle: "bg-emerald-50 text-emerald-600 border-emerald-200",
-    dotColor: "bg-emerald-500",
-    icon: Database,
-    iconTone: "from-cyan-500 to-blue-800",
-  },
-  {
-    stt: 8,
-    name: "Thiết kế",
-    slug: "thiet-ke",
-    desc: "UI/UX, Graphic Design",
-    courseCount: 2,
-    status: "Hoạt động",
-    statusStyle: "bg-emerald-50 text-emerald-600 border-emerald-200",
-    dotColor: "bg-emerald-500",
-    icon: Palette,
-    iconTone: "from-teal-400 to-emerald-700",
-  },
-];
+type CategoryForm = { name: string; slug: string; description: string };
+const emptyForm: CategoryForm = { name: "", slug: "", description: "" };
 
 export default function AdminCategoriesPage() {
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [form, setForm] = useState<CategoryForm>(emptyForm);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [showModal, setShowModal] = useState(false);
+  
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  // Search & Pagination States
+  const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 8;
+
+  // Tải danh sách danh mục
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await apiRequest<Category[]>("/api/admin/categories");
+      setCategories(data || []);
+      setError("");
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Không tải được danh mục."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  // Tự động sinh Slug khi gõ Tên danh mục
+  const handleNameChange = (nameVal: string) => {
+    const generatedSlug = nameVal
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[đĐ]/g, "d")
+      .replace(/([^0-9a-z-\s])/g, "")
+      .replace(/(\s+)/g, "-")
+      .replace(/^-+|-+$/g, "");
+
+    setForm((prev) => ({
+      ...prev,
+      name: nameVal,
+      slug: editingId ? prev.slug : generatedSlug,
+    }));
+  };
+
+  // Mở modal tạo mới
+  const openCreateModal = () => {
+    setEditingId(null);
+    setForm(emptyForm);
+    setShowModal(true);
+  };
+
+  // Mở modal chỉnh sửa
+  const openEditModal = (category: Category) => {
+    setEditingId(category.id);
+    setForm({
+      name: category.name,
+      slug: category.slug,
+      description: category.description || "",
+    });
+    setShowModal(true);
+  };
+
+  // Lưu thông tin danh mục (POST / PUT)
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!form.name.trim() || !form.slug.trim()) return;
+
+    setSaving(true);
+    try {
+      await apiRequest(
+        `/api/admin/categories${editingId ? `/${editingId}` : ""}`,
+        {
+          method: editingId ? "PUT" : "POST",
+          body: JSON.stringify(form),
+        }
+      );
+      setForm(emptyForm);
+      setEditingId(null);
+      setShowModal(false);
+      await load();
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Không lưu được danh mục."
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // Xóa danh mục (DELETE)
+  async function remove(category: Category) {
+    if (!window.confirm(`Bạn có chắc chắn muốn xóa danh mục "${category.name}"?`)) {
+      return;
+    }
+    try {
+      await apiRequest(`/api/admin/categories/${category.id}`, {
+        method: "DELETE",
+      });
+      await load();
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Không xóa được danh mục."
+      );
+    }
+  }
+
+  // Lọc danh mục theo ô tìm kiếm
+  const filteredCategories = useMemo(() => {
+    return categories.filter((cat) => {
+      const query = searchQuery.toLowerCase();
+      return (
+        cat.name.toLowerCase().includes(query) ||
+        cat.slug.toLowerCase().includes(query) ||
+        (cat.description && cat.description.toLowerCase().includes(query))
+      );
+    });
+  }, [categories, searchQuery]);
+
+  // Phân trang
+  const totalPages = Math.max(1, Math.ceil(filteredCategories.length / pageSize));
+  const paginatedCategories = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredCategories.slice(start, start + pageSize);
+  }, [filteredCategories, currentPage]);
+
+  const handlePageChange = (page: number) => {
+    if (page >= 1 && page <= totalPages) {
+      setCurrentPage(page);
+    }
+  };
 
   return (
-    <div className="flex min-h-screen bg-[#f6f9fd] text-slate-800 font-sans text-xs antialiased">
-      {/* 1. SIDEBAR ADMIN TRÁI */}
-      <aside className="fixed inset-y-0 left-0 z-40 w-57.5 bg-[#102957] text-white flex flex-col justify-between">
-        <div>
-          {/* Logo Header */}
-          <div className="flex h-17.5 items-center gap-3 border-b border-white/10 px-5">
-            <span className="flex size-9 items-center justify-center rounded-xl bg-blue-500 shadow-md">
-              <GraduationCap className="size-5" />
-            </span>
-            <div>
-              <p className="text-sm font-bold leading-tight">EduFlow</p>
-              <p className="text-[10px] text-blue-200/80 leading-tight mt-0.5">Learn · Build · Grow</p>
-            </div>
+    <main className="min-h-screen bg-[#f4f7fc] p-4 font-sans text-slate-800 sm:p-6 lg:p-8 antialiased">
+      <div className="mx-auto max-w-7xl space-y-6">
+        
+        {/* --- 1. HEADER CHÍNH & NÚT THÊM --- */}
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-[#17305f]">
+              Quản lý danh mục
+            </h1>
+            <p className="mt-1 text-xs font-medium text-slate-400">
+              Quản lý các danh mục khóa học trên hệ thống.
+            </p>
           </div>
 
-          {/* Navigation items */}
-          <nav className="p-3 space-y-1">
-            {adminNavItems.map(([label, Icon, path]) => {
-              const isActive = label === "Quản lý danh mục";
-              return (
-                <a
-                  key={label}
-                  href={path}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs transition ${
-                    isActive
-                      ? "bg-blue-600 font-bold text-white shadow-md shadow-blue-900/30"
-                      : "text-blue-100/75 hover:bg-white/10 hover:text-white"
-                  }`}
-                >
-                  <Icon className="size-4" />
-                  {label}
-                </a>
-              );
-            })}
-          </nav>
+          <button
+            type="button"
+            onClick={openCreateModal}
+            className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-bold text-white shadow-md shadow-blue-500/20 hover:bg-blue-700 transition cursor-pointer"
+          >
+            <Plus className="size-4" /> Thêm danh mục
+          </button>
         </div>
 
-      </aside>
+        {error && (
+          <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs text-rose-800">
+            {error}
+          </p>
+        )}
 
-      {/* 2. KHU VỰC CHÍNH (MAIN CONTENT) */}
-      <div className="pl-57.5 flex-1 flex flex-col min-w-0">
-        {/* Top Header */}
-        <header className="sticky top-0 z-30 h-17.5 border-b border-slate-200 bg-white/95 backdrop-blur px-7 flex items-center justify-between">
-          <div className="flex max-w-110 flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-            <Search className="size-4 text-slate-400" />
+        {/* --- 2. BẢNG DANH SÁCH & THANH LỌC --- */}
+        <div className="rounded-3xl bg-white p-5 shadow-[0_2px_16px_rgba(0,0,0,0.03)] border border-slate-100 space-y-4">
+          
+          {/* Thanh Tìm Kiếm */}
+          <div className="relative max-w-md">
+            <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
-              placeholder="Tìm kiếm người dùng, khóa học, giảng viên..."
-              className="w-full bg-transparent text-xs outline-none"
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setCurrentPage(1);
+              }}
+              placeholder="Tìm kiếm danh mục theo tên, slug..."
+              className="w-full rounded-2xl border border-slate-200/80 bg-white pl-10 pr-4 py-2 text-xs text-slate-700 outline-none transition focus:border-blue-500"
             />
           </div>
 
-          <div className="flex items-center gap-4">
-            <button className="relative p-2 text-slate-500 hover:text-blue-600">
-              <Bell className="size-5" />
-              <span className="absolute top-1 right-1 size-2 rounded-full bg-red-500" />
-            </button>
-            <div className="flex items-center gap-2.5 pl-3 border-l border-slate-200">
-              <span className="flex size-8 items-center justify-center rounded-full bg-linear-to-br from-indigo-500 to-blue-700 font-bold text-white text-xs">
-                QH
-              </span>
-              <div>
-                <p className="font-bold text-slate-800 leading-tight">Trần Quốc Huy</p>
-                <p className="text-[10px] text-slate-400">Admin</p>
-              </div>
-              <ChevronDown className="size-4 text-slate-400 ml-1" />
-            </div>
-          </div>
-        </header>
-
-        {/* Nội dung trang Quản lý danh mục */}
-        <main className="p-6 space-y-6 max-w-375">
-          {/* Header tiêu đề & Nút Thêm danh mục */}
-          <div className="flex items-end justify-between">
-            <div>
-              <h1 className="text-xl font-bold text-[#17305f]">Quản lý danh mục</h1>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Quản lý các danh mục khóa học trên hệ thống.
-              </p>
-            </div>
-
-            <button className="h-9 px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl flex items-center gap-2 shadow-md shadow-blue-200 transition cursor-pointer">
-              <Plus className="size-4" /> Thêm danh mục
-            </button>
-          </div>
-
-          {/* BẢNG TÌM KIẾM & DANH SÁCH DANH MỤC */}
-          <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[0_4px_18px_rgba(23,48,95,0.05)] space-y-4">
-            {/* Ô tìm kiếm danh mục */}
-            <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 max-w-125">
-              <Search className="size-4 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Tìm kiếm danh mục theo tên, slug..."
-                className="w-full bg-transparent text-xs outline-none"
-              />
-            </div>
-
-            {/* Bảng Dữ liệu */}
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-212.5 text-left text-[11px]">
-                <thead className="bg-slate-50/70 border-b border-slate-100 text-slate-500 font-semibold">
+          {/* Table hiển thị */}
+          <div className="overflow-x-auto min-h-[350px]">
+            <table className="w-full min-w-[750px] text-left text-xs">
+              <thead>
+                <tr className="border-b border-slate-100 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                  <th className="pb-3 pl-3 w-12 text-center">#</th>
+                  <th className="pb-3 pl-2">Tên danh mục</th>
+                  <th className="pb-3">Slug</th>
+                  <th className="pb-3 max-w-xs">Mô tả</th>
+                  <th className="pb-3 text-center">Số khóa học</th>
+                  <th className="pb-3">Trạng thái</th>
+                  <th className="pb-3 text-right pr-3">Thao tác</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {loading ? (
                   <tr>
-                    <th className="py-3.5 px-4 w-12 text-center">#</th>
-                    <th className="py-3.5 px-4">Tên danh mục</th>
-                    <th className="py-3.5 px-4">Slug</th>
-                    <th className="py-3.5 px-4">Mô tả</th>
-                    <th className="py-3.5 px-4 text-center">Số khóa học</th>
-                    <th className="py-3.5 px-4">Trạng thái</th>
-                    <th className="py-3.5 px-4 text-center">Thao tác</th>
+                    <td colSpan={7} className="py-12 text-center text-slate-400">
+                      <Loader2 className="size-5 animate-spin mx-auto mb-2 text-blue-600" />
+                      <span>Đang tải danh sách danh mục...</span>
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-                  {categoriesList.map((cat) => {
-                    const CategoryIcon = cat.icon;
+                ) : paginatedCategories.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-12 text-center text-slate-400 italic">
+                      Không tìm thấy danh mục phù hợp.
+                    </td>
+                  </tr>
+                ) : (
+                  paginatedCategories.map((category, index) => {
+                    const stt = (currentPage - 1) * pageSize + index + 1;
+
                     return (
-                      <tr key={cat.stt} className="hover:bg-slate-50/50 transition">
-                        {/* STT */}
-                        <td className="py-3.5 px-4 text-center font-bold text-slate-400">
-                          {cat.stt}
+                      <tr key={category.id} className="group hover:bg-slate-50/60 transition">
+                        <td className="py-3.5 pl-3 text-center font-bold text-slate-400">
+                          {stt}
                         </td>
 
-                        {/* Tên danh mục + Icon */}
-                        <td className="py-3.5 px-4">
+                        <td className="py-3.5 pl-2 font-bold text-slate-800">
                           <div className="flex items-center gap-3">
-                            <span
-                              className={`flex size-8 shrink-0 items-center justify-center rounded-lg bg-linear-to-br ${cat.iconTone} text-white shadow-2xs`}
-                            >
-                              <CategoryIcon className="size-4" />
+                            <span className="flex size-8 items-center justify-center rounded-xl bg-blue-50 text-blue-600 shrink-0">
+                              <FolderTree className="size-4" />
                             </span>
-                            <span className="font-bold text-slate-900">{cat.name}</span>
+                            <span>{category.name}</span>
                           </div>
                         </td>
 
-                        {/* Slug */}
-                        <td className="py-3.5 px-4 text-slate-500 font-mono text-[10px]">
-                          {cat.slug}
+                        <td className="text-slate-500 font-mono text-[11px]">
+                          {category.slug}
                         </td>
 
-                        {/* Mô tả */}
-                        <td className="py-3.5 px-4 text-slate-600">{cat.desc}</td>
-
-                        {/* Số khóa học */}
-                        <td className="py-3.5 px-4 text-center font-bold text-slate-800">
-                          {cat.courseCount}
+                        <td className="text-slate-500 font-medium max-w-xs truncate">
+                          {category.description || "—"}
                         </td>
 
-                        {/* Trạng thái */}
-                        <td className="py-3.5 px-4">
-                          <span
-                            className={`px-2.5 py-1 rounded-full text-[10px] font-bold border inline-flex items-center gap-1.5 ${cat.statusStyle}`}
-                          >
-                            <span className={`size-1.5 rounded-full ${cat.dotColor}`} />
-                            {cat.status}
+                        <td className="text-center font-bold text-slate-700">
+                          {category.courseCount ?? 0}
+                        </td>
+
+                        <td>
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-[10px] font-bold text-emerald-600">
+                            <span className="size-1.5 rounded-full bg-emerald-500"></span>
+                            Hoạt động
                           </span>
                         </td>
 
-                        {/* Cột Thao tác */}
-                        <td className="py-3.5 px-4 text-center">
-                          <div className="flex items-center justify-center gap-1">
+                        <td className="py-3.5 text-right pr-3">
+                          <div className="flex items-center justify-end gap-1">
                             <button
-                              title="Chỉnh sửa"
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-slate-100 transition cursor-pointer"
+                              type="button"
+                              onClick={() => openEditModal(category)}
+                              className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition cursor-pointer"
+                              title="Chỉnh sửa danh mục"
                             >
-                              <Edit className="size-3.5" />
+                              <Edit3 className="size-4" />
                             </button>
+
                             <button
-                              title="Khóa/Xóa"
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-slate-100 transition cursor-pointer"
+                              type="button"
+                              onClick={() => void remove(category)}
+                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                              title="Xóa danh mục"
                             >
-                              <Lock className="size-3.5" />
+                              <Trash2 className="size-4" />
                             </button>
                           </div>
                         </td>
                       </tr>
                     );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
 
-            {/* Phân trang (Pagination) */}
-            <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
-              <span className="text-slate-400 font-medium text-[11px]">
-                Hiển thị 1 - 8 trong 8 danh mục
-              </span>
+          {/* Phân trang */}
+          <div className="flex items-center justify-between border-t border-slate-100 pt-3">
+            <p className="text-[11px] font-semibold text-slate-400">
+              Hiển thị {paginatedCategories.length > 0 ? (currentPage - 1) * pageSize + 1 : 0} -{" "}
+              {Math.min(currentPage * pageSize, filteredCategories.length)} trong{" "}
+              {filteredCategories.length} danh mục
+            </p>
 
-              <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => handlePageChange(currentPage - 1)}
+                disabled={currentPage === 1}
+                className="flex size-7 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <ChevronLeft className="size-4" />
+              </button>
+
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => (
                 <button
-                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                  className="p-1.5 rounded-lg border border-slate-200 text-slate-400 hover:bg-slate-50 cursor-pointer"
+                  key={pageNum}
+                  type="button"
+                  onClick={() => handlePageChange(pageNum)}
+                  className={`flex size-7 items-center justify-center rounded-lg text-xs font-bold transition cursor-pointer ${
+                    currentPage === pageNum
+                      ? "bg-blue-600 text-white shadow-xs"
+                      : "text-slate-600 hover:bg-slate-100"
+                  }`}
                 >
-                  <ChevronLeft className="size-4" />
+                  {pageNum}
                 </button>
+              ))}
 
-                {[1, 2].map((page) => (
-                  <button
-                    key={page}
-                    onClick={() => setCurrentPage(page)}
-                    className={`size-8 rounded-lg font-bold text-xs cursor-pointer ${
-                      currentPage === page
-                        ? "bg-blue-600 text-white shadow-xs"
-                        : "border border-slate-200 text-slate-600 hover:bg-slate-50"
-                    }`}
-                  >
-                    {page}
-                  </button>
-                ))}
-
-                <button
-                  onClick={() => setCurrentPage((p) => Math.min(2, p + 1))}
-                  className="p-1.5 rounded-lg border border-slate-200 text-slate-400 hover:bg-slate-50 cursor-pointer"
-                >
-                  <ChevronRight className="size-4" />
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => handlePageChange(currentPage + 1)}
+                disabled={currentPage === totalPages}
+                className="flex size-7 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <ChevronRight className="size-4" />
+              </button>
             </div>
           </div>
-        </main>
+
+        </div>
+
       </div>
-    </div>
+
+      {/* --- 3. MODAL THÊM / SỬA DANH MỤC --- */}
+      {showModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-4 animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div>
+                <h2 className="text-base font-bold text-[#17305f]">
+                  {editingId ? "Chỉnh sửa danh mục" : "Thêm danh mục mới"}
+                </h2>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Quản lý danh mục bài học trên hệ thống
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowModal(false)}
+                className="p-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="size-5" />
+              </button>
+            </div>
+
+            <form onSubmit={save} className="space-y-3.5 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Tên danh mục <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  required
+                  maxLength={100}
+                  type="text"
+                  value={form.name}
+                  onChange={(e) => handleNameChange(e.target.value)}
+                  placeholder="Ví dụ: Lập trình Web, Trí tuệ nhân tạo..."
+                  className="w-full rounded-xl border border-slate-200 p-2.5 outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Slug (Đường dẫn thân thiện) <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  required
+                  maxLength={100}
+                  type="text"
+                  value={form.slug}
+                  onChange={(e) => setForm({ ...form, slug: e.target.value })}
+                  placeholder="lap-trinh-web"
+                  className="w-full rounded-xl border border-slate-200 p-2.5 outline-none focus:border-blue-500 font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Mô tả danh mục</label>
+                <textarea
+                  rows={3}
+                  value={form.description}
+                  onChange={(e) => setForm({ ...form, description: e.target.value })}
+                  placeholder="Giới thiệu tóm tắt danh mục khóa học này..."
+                  className="w-full rounded-xl border border-slate-200 p-2.5 outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowModal(false)}
+                  className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 cursor-pointer"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="flex items-center gap-1.5 rounded-xl bg-blue-600 px-5 py-2 text-xs font-bold text-white shadow-md hover:bg-blue-700 cursor-pointer disabled:opacity-60"
+                >
+                  {saving && <Loader2 className="size-4 animate-spin" />}
+                  <span>{saving ? "Đang lưu..." : editingId ? "Cập nhật" : "Tạo danh mục"}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </main>
   );
 }

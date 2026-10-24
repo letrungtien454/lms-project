@@ -55,6 +55,11 @@ public class Course {
     @Column(name = "is_published")
     private Boolean isPublished = false;
 
+    @Enumerated(EnumType.STRING)
+    @Builder.Default
+    @Column(name = "status", nullable = false, length = 20)
+    private CourseStatus status = CourseStatus.PENDING;
+
     @Column(name = "created_at")
     private OffsetDateTime createdAt;
 
@@ -62,6 +67,7 @@ public class Course {
     private OffsetDateTime updatedAt;
 
     @OneToMany(mappedBy = "course", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("orderIndex ASC, id ASC")
     private List<Chapter> chapters;
 
     @PrePersist

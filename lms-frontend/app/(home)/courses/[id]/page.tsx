@@ -3,6 +3,7 @@
 import useSWR from "swr";
 import { useState, useRef, useEffect, use, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { clearAuthSession, getAccessToken } from "@/lib/auth-session";
 import {
   Award,
   Bell,
@@ -132,7 +133,7 @@ function formatLessonDuration(value?: string | number | null): string | null {
 }
 
 const fetcher = (url: string) => {
-  const token = typeof window !== 'undefined' ? localStorage.getItem("accessToken") : null;
+  const token = getAccessToken();
   const headers: HeadersInit = {};
 
   if (token && token !== "null" && token !== "undefined") {
@@ -1077,7 +1078,7 @@ function Reviews({
 
   const submitReview = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const token = localStorage.getItem("accessToken");
+    const token = getAccessToken();
     if (!token) {
       router.push(authHref);
       return;
@@ -1109,7 +1110,7 @@ function Reviews({
     const text = (replyDrafts[reviewId] ?? "").trim();
     if (!text) return;
 
-    const token = localStorage.getItem("accessToken");
+    const token = getAccessToken();
     if (!token) {
       router.push(authHref);
       return;
@@ -1141,7 +1142,7 @@ function Reviews({
   };
 
   const toggleReplyHelpful = async (replyId: number) => {
-    const token = localStorage.getItem("accessToken");
+    const token = getAccessToken();
     if (!token) {
       showToast("Vui lòng đăng nhập để đánh dấu hữu ích.", "error");
       router.push(authHref);
@@ -1164,7 +1165,7 @@ function Reviews({
   };
 
   const toggleHelpful = async (review: ReviewItem) => {
-    const token = localStorage.getItem("accessToken");
+    const token = getAccessToken();
     if (!token) {
       showToast("Vui lòng đăng nhập để đánh dấu hữu ích.", "error");
       router.push(authHref);
@@ -1430,7 +1431,7 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
   useEffect(() => {
     let cancelled = false;
     setIsEnrolled(false);
-    const token = localStorage.getItem("accessToken");
+    const token = getAccessToken();
     if (token && token !== "null" && token !== "undefined") {
       setIsLoggedIn(true);
 
@@ -1458,7 +1459,7 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
   }, [resolvedParams.id]);
 
   const handleLogout = () => {
-    localStorage.removeItem("accessToken");
+    clearAuthSession();
     setIsLoggedIn(false);
     setUser(null);
     setIsEnrolled(false);
@@ -1505,7 +1506,7 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
     : [];
 
   const handleEnroll = async () => {
-    const token = localStorage.getItem("accessToken");
+    const token = getAccessToken();
 
     if (!token) {
       showToast("Vui lòng đăng nhập để đăng ký khóa học!", "error");

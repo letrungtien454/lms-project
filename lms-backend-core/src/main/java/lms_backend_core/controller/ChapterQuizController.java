@@ -17,8 +17,17 @@ public class ChapterQuizController {
     @GetMapping("/availability")
     public ChapterQuizDtos.Availability availability(
             @PathVariable Long chapterId,
+            @RequestParam Long lessonId,
             Authentication authentication) {
-        return chapterQuizService.availability(chapterId, authentication);
+        return chapterQuizService.availability(chapterId, lessonId, authentication);
+    }
+
+    @GetMapping("/active")
+    public ChapterQuizDtos.AttemptStatus activeAttempt(
+            @PathVariable Long chapterId,
+            @RequestParam Long lessonId,
+            Authentication authentication) {
+        return chapterQuizService.activeAttempt(chapterId, lessonId, authentication);
     }
 
     @PostMapping
