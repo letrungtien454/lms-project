@@ -80,6 +80,7 @@ export default function AdminUsersPage() {
 
   // States cho Modal Thêm người dùng mới
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [userForm, setUserForm] = useState({
     fullName: "",
@@ -221,7 +222,7 @@ export default function AdminUsersPage() {
   };
 
   // Cập nhật thông tin tài khoản
-  async function update(userId: number, changes: { role?: string; isActive?: boolean }) {
+  async function update(userId: number, changes: { fullName?: string; email?: string; role?: string; isActive?: boolean }): Promise<boolean> {
     setBusyId(userId);
     setActiveMenuId(null);
     setError("");
@@ -231,11 +232,30 @@ export default function AdminUsersPage() {
         body: JSON.stringify(changes),
       });
       await load();
+      return true;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Không cập nhật được tài khoản.");
+      return false;
     } finally {
       setBusyId(null);
     }
+  }
+
+  function openEditModal(user: AdminUser) {
+    setEditingUser(user);
+    setActiveMenuId(null);
+    setError("");
+  }
+
+  async function saveUserDetails(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editingUser) return;
+    const form = new FormData(event.currentTarget);
+    const updated = await update(editingUser.id, {
+      fullName: String(form.get("fullName") ?? "").trim(),
+      email: String(form.get("email") ?? "").trim(),
+    });
+    if (updated) setEditingUser(null);
   }
 
   // Xóa tài khoản
@@ -526,6 +546,7 @@ export default function AdminUsersPage() {
 
                               <button
                                 type="button"
+                                onClick={() => openEditModal(user)}
                                 className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition cursor-pointer"
                               >
                                 <Edit3 className="size-3.5 text-slate-500" />
@@ -742,6 +763,19 @@ export default function AdminUsersPage() {
               </div>
             </form>
           </div>
+        </div>
+      )}
+      {editingUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
+          <form onSubmit={(event) => void saveUserDetails(event)} className="w-full max-w-lg space-y-4 rounded-3xl bg-white p-6 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <div><h2 className="text-lg font-bold text-[#17305f]">Chỉnh sửa tài khoản</h2><p className="mt-1 text-xs text-slate-500">Cập nhật tên và email người dùng.</p></div>
+              <button type="button" onClick={() => setEditingUser(null)} aria-label="Đóng" className="rounded-lg p-2 text-slate-400 hover:bg-slate-100"><X className="size-5" /></button>
+            </div>
+            <label className="block space-y-1 text-xs font-semibold text-slate-700"><span>Họ và tên</span><input name="fullName" required maxLength={100} defaultValue={editingUser.fullName} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 outline-none focus:border-blue-500" /></label>
+            <label className="block space-y-1 text-xs font-semibold text-slate-700"><span>Email</span><input name="email" required type="email" defaultValue={editingUser.email} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 outline-none focus:border-blue-500" /></label>
+            <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={() => setEditingUser(null)} className="rounded-xl border px-4 py-2 text-xs font-bold">Hủy</button><button type="submit" disabled={busyId === editingUser.id} className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">Lưu thay đổi</button></div>
+          </form>
         </div>
       )}
     </main>

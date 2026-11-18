@@ -4,6 +4,22 @@ import useSWR from "swr";
 import { useState, useRef, useEffect, use, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { clearAuthSession, getAccessToken } from "@/lib/auth-session";
+import { StudentNotificationBell } from "@/components/student-notification-bell";
+import { StudentHeader } from "@/components/student-header";
+import { StudentSidebar } from "@/components/student-sidebar";
+import { useStudentSidebarState } from "@/components/student-sidebar-state";
+import { StudentFooter } from "@/components/student-footer";
+import {
+  type CatalogCourse,
+  formatCourseDuration,
+  STUDENT_API_URL,
+  type StudentUser,
+} from "@/lib/student-api";
+import {
+  matchesStudentCategory,
+  StudentCategoryMenu,
+  studentCategories,
+} from "@/components/student-category-menu";
 import {
   Award,
   Bell,
@@ -74,6 +90,10 @@ type ApiCourse = {
   instructor?: string;
   instructorName?: string;
   categoryName?: string;
+  averageRating?: number | null;
+  reviewCount?: number;
+  studentCount?: number;
+  totalDurationSeconds?: number;
   chapters?: ApiChapter[];
 };
 
@@ -162,6 +182,10 @@ const fallbackCourse: Required<ApiCourse> = {
   categoryName: "Lập trình Web",
   instructor: "EduFlow Instructor",
   instructorName: "EduFlow Instructor",
+  averageRating: 0,
+  reviewCount: 0,
+  studentCount: 0,
+  totalDurationSeconds: 0,
   chapters: [],
 };
 
@@ -242,10 +266,11 @@ function Header({
           <a className="text-xs font-bold text-blue-600" href="/courses">
             Khóa học
           </a>
-          <a className="text-xs font-semibold text-slate-600 hover:text-blue-600 transition" href="/courses#filters">
-            Danh mục
-          </a>
+          <StudentCategoryMenu />
         </nav>
+        <div className="lg:hidden">
+          <StudentCategoryMenu />
+        </div>
 
         <div className="hidden max-w-sm flex-1 md:block">
           <div className="relative">
@@ -268,12 +293,7 @@ function Header({
 
           {isLoggedIn ? (
             <div className="relative flex items-center gap-2 pl-2" ref={dropdownRef}>
-              <button
-                className="rounded-xl p-2 text-slate-500 hover:bg-blue-50 hover:text-blue-600 transition cursor-pointer"
-                aria-label="Thông báo"
-              >
-                <Bell className="size-4" />
-              </button>
+              <StudentNotificationBell className="cursor-pointer" />
 
               <button
                 onClick={() => setDropdownOpen(!dropdownOpen)}
@@ -367,7 +387,7 @@ function AppSidebar({
   const items = [
     ["Trang cá nhân", UserRound, "/student/dashboard"],
     ["Lộ trình học", Target, "/student/roadmap"],
-    ["Khóa học của tôi", GraduationCap, "/student/my-courses"],
+    ["Khóa học của tôi", GraduationCap, "/student/mycourses"],
     ["Code Day", Code2, "/student/code-day"],
     ["Luyện phỏng vấn", MessageCircle, "/student/interview"],
     ["Tiến độ học tập", Award, "/student/progress"],
@@ -694,35 +714,9 @@ function EnrollmentCard({
   );
 }
 
-const categories = [
-  "Programming",
-  "Web Development",
-  "Database",
-  "Artificial Intelligence",
-  "Data Science",
-  "Cyber Security",
-  "General",
-];
-
-const categoryValues: Record<string, string[]> = {
-  Programming: ["programming"],
-  "Web Development": ["web development", "web dev"],
-  Database: ["database"],
-  "Artificial Intelligence": ["artificial intelligence", "ai"],
-  "Data Science": ["data science"],
-  "Cyber Security": ["cyber security", "security"],
-  General: ["general"],
-};
-
-const categoryLabels: Record<string, string> = {
-  Programming: "Lập trình",
-  "Web Development": "Phát triển Web",
-  Database: "Cơ sở dữ liệu",
-  "Artificial Intelligence": "Trí tuệ nhân tạo",
-  "Data Science": "Khoa học dữ liệu",
-  "Cyber Security": "An ninh mạng",
-  General: "Tổng hợp",
-};
+const categoryLabels: Record<string, string> = Object.fromEntries(
+  studentCategories.map(({ name, label }) => [name, label]),
+);
 
 const levels = ["BEGINNER", "INTERMEDIATE", "ADVANCED", "ALL_LEVELS"];
 const levelLabels: Record<string, string> = {
@@ -734,14 +728,7 @@ const levelLabels: Record<string, string> = {
 
 function normalizeCategory(value?: string): string | null {
   if (!value) return null;
-  const normalized = value.trim().toLocaleLowerCase();
-  for (const category of categories) {
-    const names = [category, categoryLabels[category], ...categoryValues[category]];
-    if (names.some((name) => normalized === name.toLocaleLowerCase() || normalized.includes(name.toLocaleLowerCase()))) {
-      return category;
-    }
-  }
-  return null;
+  return studentCategories.find((category) => matchesStudentCategory(value, category.name))?.name ?? null;
 }
 
 function RelatedCourses({
@@ -759,11 +746,16 @@ function RelatedCourses({
   );
 
   const currentCategory = normalizeCategory(categoryName);
-  const related = (courses ?? [])
+  const candidates = (courses ?? [])
     .filter((item) => String(item.id) !== String(courseId))
-    .filter((item) => {
-      return !currentCategory || normalizeCategory(item.categoryName || item.category) === currentCategory;
-    })
+    .sort((a, b) =>
+      Number((b.reviewCount ?? 0) > 0) - Number((a.reviewCount ?? 0) > 0) ||
+      (Number(b.averageRating) || 0) - (Number(a.averageRating) || 0) ||
+      (Number(b.studentCount) || 0) - (Number(a.studentCount) || 0));
+  const sameCategory = currentCategory
+    ? candidates.filter((item) => normalizeCategory(item.categoryName || item.category) === currentCategory)
+    : [];
+  const related = (sameCategory.length ? sameCategory : candidates)
     .slice(0, 3);
 
   return (
@@ -791,7 +783,6 @@ function RelatedCourses({
           {related.map((item) => {
             const itemId = String(item.id);
             const thumbnail = item.thumbnailUrl || item.thumbnail || "https://images.unsplash.com/photo-1517694712202-14dd9538aa97?w=600";
-            const lessonCount = (item.chapters ?? []).reduce((sum, chapter) => sum + (chapter.lessons?.length ?? 0), 0);
             const price = Number(item.price ?? 0);
             return (
               <button
@@ -812,7 +803,9 @@ function RelatedCourses({
                   <h3 className="line-clamp-2 text-sm font-bold text-slate-900 transition group-hover:text-blue-600">{item.title || "Khóa học"}</h3>
                   <p className="mt-2 text-xs text-slate-500">{item.instructorName || item.instructor || "Giảng viên EduFlow"}</p>
                   <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
-                    <span className="flex items-center gap-1"><BookOpen className="size-3.5" /> {lessonCount} bài học</span>
+                    {formatCourseDuration(item.totalDurationSeconds) && (
+                      <span className="flex items-center gap-1"><Clock3 className="size-3.5" /> {formatCourseDuration(item.totalDurationSeconds)}</span>
+                    )}
                     <span>{levelLabels[levels.includes(String(item.level || "ALL_LEVELS").toUpperCase()) ? String(item.level || "ALL_LEVELS").toUpperCase() : "ALL_LEVELS"]}</span>
                   </div>
                   <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3">
@@ -820,6 +813,10 @@ function RelatedCourses({
                       {price === 0 ? "Miễn phí" : `${price.toLocaleString("vi-VN")}đ`}
                     </span>
                     <span className="text-xs font-bold text-blue-600 group-hover:underline">Xem chi tiết</span>
+                  </div>
+                  <div className="flex justify-between px-4 pb-4 text-[11px] text-slate-500">
+                    <span className="flex items-center gap-1"><Star className="size-3.5 fill-amber-400 text-amber-400" />{item.reviewCount ? `${Number(item.averageRating ?? 0).toFixed(1)} (${item.reviewCount})` : "Chưa có đánh giá"}</span>
+                    <span>{Number(item.studentCount ?? 0).toLocaleString("vi-VN")} học viên</span>
                   </div>
                 </div>
               </button>
@@ -1413,15 +1410,20 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
   const returnUrl = `/courses/${resolvedParams.id}${searchParams.toString() ? `?${searchParams.toString()}` : ""}`;
   const authHref = authUrlFor(returnUrl);
 
-  const [collapsed, setCollapsed] = useState(false);
-  const [activeTab, setActiveTab] = useState<string | null>(null);
+  const { collapsed, setCollapsed } = useStudentSidebarState();
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<StudentUser | null>(null);
   const [isEnrolled, setIsEnrolled] = useState(false);
   const [isEnrolling, setIsEnrolling] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
   const router = useRouter();
+
+  const { data: catalogCourses } = useSWR<CatalogCourse[]>(
+    `${STUDENT_API_URL}/api/courses`,
+    fetcher,
+    { revalidateOnFocus: false },
+  );
 
   const showToast = (message: string, type: "success" | "error" = "success") => {
     setToast({ message, type });
@@ -1435,16 +1437,16 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
     if (token && token !== "null" && token !== "undefined") {
       setIsLoggedIn(true);
 
-      fetch("http://localhost:8080/api/users/me", {
+      fetch(`${STUDENT_API_URL}/api/users/me`, {
         headers: { Authorization: `Bearer ${token}` },
       })
         .then((res) => (res.ok ? res.json() : null))
         .then((data) => {
           if (data) setUser(data);
         })
-        .catch(() => {});
+        .catch((error: unknown) => console.error("Không thể tải thông tin tài khoản:", error));
 
-      fetch(`http://localhost:8080/api/enrollments/check/${resolvedParams.id}`, {
+      fetch(`${STUDENT_API_URL}/api/enrollments/check/${resolvedParams.id}`, {
         headers: { Authorization: `Bearer ${token}` },
       })
         .then((res) => (res.ok ? res.json() : null))
@@ -1467,19 +1469,19 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
   };
 
   const { data } = useSWR<ApiCourse>(
-    `http://localhost:8080/api/courses/${resolvedParams.id}`,
+    `${STUDENT_API_URL}/api/courses/${resolvedParams.id}`,
     fetcher,
     { revalidateOnFocus: false }
   );
 
   const { data: reviewsData, mutate: mutateReviews } = useSWR<ReviewListResponse>(
-    `http://localhost:8080/api/courses/${resolvedParams.id}/reviews`,
+    `${STUDENT_API_URL}/api/courses/${resolvedParams.id}/reviews`,
     fetcher,
     { revalidateOnFocus: false }
   );
 
   const { data: enrollmentCountData, error: enrollmentCountError, mutate: mutateEnrollmentCount } = useSWR<number | { enrollmentCount?: number; count?: number }>(
-    `http://localhost:8080/api/courses/${resolvedParams.id}/enrollment-count`,
+    `${STUDENT_API_URL}/api/courses/${resolvedParams.id}/enrollment-count`,
     fetcher,
     { revalidateOnFocus: true, refreshInterval: 15000 }
   );
@@ -1600,20 +1602,21 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
 
   return (
     <div className="flex min-h-screen w-screen flex-col bg-[#f8fbff] text-slate-900">
-      <Header
+      <StudentHeader
         collapsed={collapsed}
         onToggle={() => setCollapsed(!collapsed)}
         isLoggedIn={isLoggedIn}
         user={user}
+        courses={catalogCourses ?? []}
         authHref={authHref}
         onLogout={handleLogout}
+        variant="courses"
       />
 
       {isLoggedIn && (
-        <AppSidebar
+        <StudentSidebar
           collapsed={collapsed}
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
+          activeTab="Khóa học của tôi"
         />
       )}
 
@@ -1725,40 +1728,7 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
 
         <ToastNotification toast={toast} onClose={() => setToast(null)} />
 
-        <footer className="mt-16 bg-[#102653] text-blue-100">
-          <div className="mx-auto grid max-w-7xl gap-10 px-5 py-12 sm:grid-cols-2 lg:grid-cols-[1.6fr_1fr_1fr_1fr] lg:px-8">
-            <div>
-              <Logo />
-              <p className="mt-4 max-w-xs text-sm leading-6 text-blue-200/70">
-                Giải pháp học lập trình và phát triển kỹ năng công nghệ hiệu quả.
-              </p>
-            </div>
-            <div>
-              <h3 className="text-sm font-bold text-white">Nền tảng</h3>
-              <div className="mt-4 flex flex-col gap-3 text-sm text-blue-200/70">
-                <a href="/courses" className="hover:text-white transition">Duyệt khóa học</a>
-                <a href="/courses#filters" className="hover:text-white transition">Danh mục</a>
-              </div>
-            </div>
-            <div>
-              <h3 className="text-sm font-bold text-white">Chủ đề hot</h3>
-              <div className="mt-4 flex flex-col gap-3 text-sm text-blue-200/70">
-                <a href="/courses" className="hover:text-white transition">Lập trình Web</a>
-                <a href="/courses" className="hover:text-white transition">Trí tuệ nhân tạo</a>
-              </div>
-            </div>
-            <div>
-              <h3 className="text-sm font-bold text-white">Hỗ trợ</h3>
-              <div className="mt-4 flex flex-col gap-3 text-sm text-blue-200/70">
-                <a href="#" className="hover:text-white transition">Trung tâm hỗ trợ</a>
-                <a href="#" className="hover:text-white transition">Điều khoản sử dụng</a>
-              </div>
-            </div>
-          </div>
-          <div className="border-t border-white/10 px-5 py-5 text-center text-xs text-blue-200/50 lg:px-8">
-            © 2026 EduFlow. Learn smarter, grow faster.
-          </div>
-        </footer>
+        <StudentFooter />
       </main>
     </div>
   );

@@ -22,6 +22,13 @@ public class Notification {
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "sender_id")
+    private User sender;
+
+    @Column(name = "target_role", length = 20)
+    private String targetRole;
+
     @Column(nullable = false)
     private String title;
 

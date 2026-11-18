@@ -18,7 +18,11 @@ public final class AdminDtos {
     public record Dashboard(long totalUsers, long totalCourses, long totalTeachers, BigDecimal totalRevenue) {
     }
 
-    public record UserUpdate(String role, Boolean isActive) {
+    public record UserUpdate(
+            String fullName,
+            @Email String email,
+            String role,
+            Boolean isActive) {
     }
 
     public record UserCreate(
@@ -100,7 +104,36 @@ public final class AdminDtos {
         }
     }
 
-    public record NotificationInput(@NotBlank String title, @NotBlank String message, List<Long> userIds) {
+    public record NotificationInput(
+            @NotBlank String title,
+            @NotBlank String message,
+            List<Long> userIds,
+            String targetType) {
+    }
+
+    public record NotificationView(
+            Long id,
+            String title,
+            String message,
+            Long userId,
+            String targetRole,
+            String senderName,
+            Boolean isRead,
+            OffsetDateTime createdAt) {
+        public static NotificationView from(Notification notification) {
+            return new NotificationView(
+                    notification.getId(),
+                    notification.getTitle(),
+                    notification.getMessage(),
+                    notification.getUser().getId(),
+                    notification.getTargetRole(),
+                    notification.getSender() == null ? null : notification.getSender().getFullName(),
+                    notification.getIsRead(),
+                    notification.getCreatedAt());
+        }
+    }
+
+    public record NotificationUpdate(@NotBlank String title, @NotBlank String message) {
     }
 
     public record ReviewModeration(Long id, String studentName, String courseTitle, Integer rating,

@@ -25,6 +25,7 @@ type NotificationItem = {
   message: string;
   userId?: number | null;
   targetRole?: string | null;
+  senderName?: string | null;
   createdAt: string;
   isRead?: boolean;
 };
@@ -61,23 +62,7 @@ export default function AdminNotificationsPage() {
       setNotifications(data || []);
       setError("");
     } catch (cause) {
-      // Fallback dữ liệu mẫu mượt mà khi API chưa có dữ liệu danh sách
-      setNotifications([
-        {
-          id: 1,
-          title: "Bảo trì hệ thống định kỳ",
-          message: "Hệ thống sẽ tạm ngưng nâng cấp CSDL từ 00:00 - 02:00 ngày 30/10.",
-          createdAt: "2026-10-24T08:00:00Z",
-          targetRole: "Tất cả",
-        },
-        {
-          id: 2,
-          title: "Chào mừng giảng viên mới gia nhập",
-          message: "EduFlow vừa hoàn tất nâng cấp công cụ đăng tải bài học.",
-          createdAt: "2026-10-22T10:30:00Z",
-          targetRole: "Giảng viên",
-        },
-      ]);
+      setError(cause instanceof Error ? cause.message : "Không tải được danh sách thông báo.");
     } finally {
       setLoading(false);
     }
@@ -85,6 +70,29 @@ export default function AdminNotificationsPage() {
 
   useEffect(() => {
     void loadNotifications();
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const markUnreadNotifications = async () => {
+      try {
+        const inbox = await apiRequest<NotificationItem[]>("/api/notifications");
+        const unreadNotifications = inbox.filter((notification) => !notification.isRead);
+        if (unreadNotifications.length === 0) return;
+
+        await Promise.all(unreadNotifications.map((notification) =>
+          apiRequest(`/api/notifications/${notification.id}/read`, { method: "PATCH" })));
+        if (active) window.dispatchEvent(new Event("notifications-updated"));
+      } catch (cause) {
+        if (active) {
+          setError(cause instanceof Error ? cause.message : "Không thể cập nhật trạng thái thông báo.");
+        }
+      }
+    };
+    void markUnreadNotifications();
+    return () => {
+      active = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -125,6 +133,10 @@ export default function AdminNotificationsPage() {
     setNotice("");
 
     try {
+      if (!title.trim() || !message.trim()) {
+        setError("Vui lòng nhập tiêu đề và nội dung thông báo.");
+        return;
+      }
       if (editingItem) {
         // Cập nhật thông báo (PUT)
         await apiRequest(`/api/admin/notifications/${editingItem.id}`, {
@@ -138,12 +150,16 @@ export default function AdminNotificationsPage() {
           targetType === "SPECIFIC" && userIds.trim()
             ? userIds.split(",").map((v) => Number(v.trim()))
             : null;
+        if (targetType === "SPECIFIC" && (!ids || ids.some((id) => !Number.isInteger(id) || id <= 0))) {
+          setError("Vui lòng nhập ID người nhận hợp lệ, phân tách bằng dấu phẩy.");
+          return;
+        }
 
-        await apiRequest("/api/admin/notifications", {
+        const sentCount = await apiRequest<number>("/api/admin/notifications", {
           method: "POST",
           body: JSON.stringify({ title, message, userIds: ids, targetType }),
         });
-        setNotice("Đã phát hành thông báo thành công!");
+        setNotice(`Đã gửi thông báo đến ${sentCount} người dùng.`);
       }
 
       setShowModal(false);
@@ -312,6 +328,7 @@ export default function AdminNotificationsPage() {
 
                         <td className="py-3.5 pl-2 font-bold text-slate-800">
                           {item.title}
+                          <p className="mt-1 text-[10px] font-normal text-slate-400">Người gửi: {item.senderName || "Quản trị viên"}</p>
                         </td>
 
                         <td className="text-slate-500 font-medium max-w-xs truncate">
@@ -320,7 +337,7 @@ export default function AdminNotificationsPage() {
 
                         <td>
                           <span className="inline-block rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-bold text-blue-600">
-                            {item.targetRole || (item.userId ? `User #${item.userId}` : "Tất cả")}
+                            {{ ALL: "Tất cả người dùng", STUDENTS: "Học viên", TEACHERS: "Giảng viên", SPECIFIC: "Người nhận chỉ định" }[item.targetRole ?? ""] || (item.userId ? `Người dùng #${item.userId}` : "Tất cả")}
                           </span>
                         </td>
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Settings,
   ShieldAlert,
@@ -14,34 +14,107 @@ import {
   Check,
   X,
   Loader2,
+  Camera,
 } from "lucide-react";
+import { API_BASE_URL, apiRequest } from "@/lib/api";
+
+type Profile = { fullName: string; email: string; avatarUrl: string | null };
+type Settings = {
+  siteName: string;
+  supportEmail: string;
+  maintenanceMode: boolean;
+  allowRegistration: boolean;
+  autoApproveCourses: boolean;
+  autoApproveTeachers: boolean;
+  platformCommission: number;
+  minCoursePrice: number;
+};
+
+const defaultSettings: Settings = {
+  siteName: "EduFlow LMS",
+  supportEmail: "support@eduflow.vn",
+  maintenanceMode: false,
+  allowRegistration: true,
+  autoApproveCourses: false,
+  autoApproveTeachers: false,
+  platformCommission: 15,
+  minCoursePrice: 50000,
+};
 
 export default function AdminSettingsPage() {
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState("");
+  const [error, setError] = useState("");
+  const [settings, setSettings] = useState<Settings>(defaultSettings);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [profileName, setProfileName] = useState("");
+  const [profileAvatar, setProfileAvatar] = useState("");
+  const [profileFile, setProfileFile] = useState<File | null>(null);
+  const [profilePreview, setProfilePreview] = useState("");
+  const [profileSaving, setProfileSaving] = useState(false);
 
-  // Cấu hình mẫu trên giao diện
-  const [settings, setSettings] = useState({
-    siteName: "EduFlow LMS",
-    supportEmail: "support@eduflow.vn",
-    maintenanceMode: false,
-    allowRegistration: true,
-    autoApproveCourses: false,
-    autoApproveTeachers: false,
-    platformCommission: 15, // 15% hoa hồng
-    minCoursePrice: 50000,
-  });
+  useEffect(() => {
+    apiRequest<Settings>("/api/admin/settings")
+      .then(setSettings)
+      .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : "Không tải được cấu hình."))
+      .finally(() => setLoading(false));
+    apiRequest<Profile>("/api/users/me")
+      .then((data) => {
+        setProfile(data);
+        setProfileName(data.fullName);
+        setProfileAvatar(data.avatarUrl ?? "");
+      })
+      .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : "Không tải được hồ sơ quản trị viên."));
+  }, []);
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
     setNotice("");
-
-    // Giả lập lưu cài đặt hệ thống
-    setTimeout(() => {
+    setError("");
+    try {
+      const saved = await apiRequest<Settings>("/api/admin/settings", {
+        method: "PUT",
+        body: JSON.stringify(settings),
+      });
+      setSettings(saved);
+      setNotice("Đã lưu thay đổi cấu hình hệ thống.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Không lưu được cấu hình.");
+    } finally {
       setSaving(false);
-      setNotice("Đã lưu thay đổi cấu hình hệ thống thành công!");
-    }, 600);
+    }
+  };
+
+  const handleSaveProfile = async () => {
+    setProfileSaving(true);
+    setError("");
+    setNotice("");
+    try {
+      let avatarUrl = profileAvatar;
+      if (profileFile) {
+        const formData = new FormData();
+        formData.append("file", profileFile);
+        const upload = await apiRequest<{ fileUrl: string }>("/api/users/upload", { method: "POST", body: formData });
+        avatarUrl = upload.fileUrl;
+      }
+      const updated = await apiRequest<Profile>("/api/users/me", {
+        method: "PUT",
+        body: JSON.stringify({ fullName: profileName, avatarUrl: avatarUrl || null }),
+      });
+      setProfile(updated);
+      setProfileAvatar(updated.avatarUrl ?? "");
+      setProfileFile(null);
+      setProfilePreview("");
+      window.sessionStorage.setItem("userName", updated.fullName);
+      window.dispatchEvent(new Event("profile-updated"));
+      setNotice("Đã cập nhật hồ sơ quản trị viên.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Không cập nhật được hồ sơ.");
+    } finally {
+      setProfileSaving(false);
+    }
   };
 
   return (
@@ -61,7 +134,7 @@ export default function AdminSettingsPage() {
 
           <button
             onClick={handleSave}
-            disabled={saving}
+            disabled={saving || loading}
             className="flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-xs font-bold text-white shadow-md shadow-blue-500/20 hover:bg-blue-700 transition cursor-pointer disabled:opacity-60"
           >
             {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
@@ -75,9 +148,30 @@ export default function AdminSettingsPage() {
             <span>{notice}</span>
           </p>
         )}
+        {error && <p role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-bold text-rose-800">{error}</p>}
+        {loading && <p className="text-xs font-semibold text-slate-500">Đang tải cấu hình đã lưu...</p>}
 
         <form onSubmit={handleSave} className="space-y-6">
-          
+
+          <section className="rounded-3xl border border-slate-100 bg-white p-6 shadow-[0_2px_16px_rgba(0,0,0,0.03)]">
+            <h2 className="border-b border-slate-100 pb-3 text-sm font-bold text-[#17305f]">Hồ sơ quản trị viên</h2>
+            <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-center">
+              {profilePreview || profileAvatar ? <img src={profilePreview || (profileAvatar.startsWith("http") ? profileAvatar : `${API_BASE_URL}${profileAvatar.startsWith("/") ? "" : "/"}${profileAvatar}`)} alt="" className="size-20 rounded-full object-cover" /> : <span className="flex size-20 items-center justify-center rounded-full bg-blue-600 text-xl font-bold text-white">{profileName.trim().split(/\s+/).filter(Boolean).slice(-2).map((part) => part[0].toUpperCase()).join("") || "AD"}</span>}
+              <div className="flex-1 space-y-3">
+                <label className="block space-y-1 text-xs font-bold"><span>Họ và tên</span><input required maxLength={100} value={profileName} onChange={(event) => setProfileName(event.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2.5" /></label>
+                <p className="text-xs text-slate-500">{profile?.email}</p>
+                <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50"><Camera className="size-4" /> Đổi ảnh đại diện<input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (!file) return;
+                  if (file.size > 5 * 1024 * 1024) { setError("Kích thước ảnh tối đa là 5MB."); return; }
+                  setProfileFile(file);
+                  setProfilePreview(URL.createObjectURL(file));
+                }} /></label>
+                <button type="button" onClick={() => void handleSaveProfile()} disabled={profileSaving || !profile} className="block rounded-xl bg-slate-800 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">{profileSaving ? "Đang lưu..." : "Lưu hồ sơ"}</button>
+              </div>
+            </div>
+          </section>
+
           {/* --- 1. CẤU HÌNH CHUNG NỀN TẢNG --- */}
           <section className="rounded-3xl bg-white p-6 shadow-[0_2px_16px_rgba(0,0,0,0.03)] border border-slate-100 space-y-4 text-xs">
             <h2 className="text-sm font-bold text-[#17305f] border-b border-slate-100 pb-3 flex items-center gap-2">
@@ -195,6 +289,7 @@ export default function AdminSettingsPage() {
                   type="number"
                   min="0"
                   max="100"
+                  required
                   value={settings.platformCommission}
                   onChange={(e) => setSettings({ ...settings, platformCommission: Number(e.target.value) })}
                   className="w-full rounded-2xl border border-slate-200 bg-slate-50/50 p-3 outline-none focus:border-blue-500 focus:bg-white"
@@ -207,6 +302,8 @@ export default function AdminSettingsPage() {
                 <input
                   type="number"
                   step="10000"
+                  min="0"
+                  required
                   value={settings.minCoursePrice}
                   onChange={(e) => setSettings({ ...settings, minCoursePrice: Number(e.target.value) })}
                   className="w-full rounded-2xl border border-slate-200 bg-slate-50/50 p-3 outline-none focus:border-blue-500 focus:bg-white"

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { ApiError, apiRequest } from "@/lib/api";
 import { clearAuthSession, getAccessToken } from "@/lib/auth-session";
@@ -25,6 +25,14 @@ export function RoleGuard({
   const router = useRouter();
   const [authorized, setAuthorized] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useLayoutEffect(() => {
+    const token = getAccessToken();
+    const cachedRole = window.sessionStorage.getItem("userRole");
+    if (token && cachedRole === requiredRole) {
+      setAuthorized(true);
+    }
+  }, [requiredRole]);
 
   useEffect(() => {
     let active = true;

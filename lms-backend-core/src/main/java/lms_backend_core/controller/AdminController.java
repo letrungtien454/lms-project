@@ -5,6 +5,7 @@ import lms_backend_core.dto.AdminDtos;
 import lms_backend_core.dto.TeacherRequestDtos;
 import lms_backend_core.entity.*;
 import lms_backend_core.repository.*;
+import lms_backend_core.service.AuditLogService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
@@ -16,6 +17,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Locale;
+import jakarta.servlet.http.HttpServletRequest;
 
 @RestController
 @RequestMapping("/api/admin")
@@ -31,6 +33,7 @@ public class AdminController {
     private final ReviewRepository reviewRepository;
     private final LessonCommentRepository lessonCommentRepository;
     private final PasswordEncoder passwordEncoder;
+    private final AuditLogService auditLogService;
 
     @GetMapping("/dashboard")
     @Transactional(readOnly = true)
@@ -87,7 +90,10 @@ public class AdminController {
     @PostMapping("/users")
     @Transactional
     @ResponseStatus(HttpStatus.CREATED)
-    public AdminDtos.UserView createUser(@Valid @RequestBody AdminDtos.UserCreate input) {
+    public AdminDtos.UserView createUser(
+            @Valid @RequestBody AdminDtos.UserCreate input,
+            org.springframework.security.core.Authentication authentication,
+            HttpServletRequest request) {
         String email = input.email().trim().toLowerCase(Locale.ROOT);
         if (userRepository.existsByEmailIgnoreCase(email)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Email is already in use.");
@@ -101,7 +107,9 @@ public class AdminController {
                 .isActive(true)
                 .build();
         try {
-            return AdminDtos.UserView.from(userRepository.save(user));
+            AdminDtos.UserView saved = AdminDtos.UserView.from(userRepository.save(user));
+            auditLogService.record(authentication, request, "Tạo tài khoản", "User #" + saved.id() + " (" + saved.email() + ")", "INFO");
+            return saved;
         } catch (DataIntegrityViolationException exception) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Email is already in use.", exception);
         }
@@ -112,9 +120,27 @@ public class AdminController {
     public AdminDtos.UserView updateUser(
             @PathVariable Long userId,
             @RequestBody AdminDtos.UserUpdate update,
-            org.springframework.security.core.Authentication authentication) {
+            org.springframework.security.core.Authentication authentication,
+            HttpServletRequest request) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found."));
+        if (update.fullName() != null) {
+            if (update.fullName().isBlank()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Full name cannot be blank.");
+            }
+            user.setFullName(update.fullName().trim());
+        }
+        if (update.email() != null) {
+            String email = update.email().trim().toLowerCase(Locale.ROOT);
+            if (email.isBlank()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Email cannot be blank.");
+            }
+            if (userRepository.findByEmailIgnoreCase(email)
+                    .filter(existing -> !existing.getId().equals(userId)).isPresent()) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "Email is already in use.");
+            }
+            user.setEmail(email);
+        }
         if (update.role() != null) {
             Role newRole = parseRole(update.role());
             if (user.getRole() == Role.ADMIN && newRole != Role.ADMIN) {
@@ -133,7 +159,9 @@ public class AdminController {
             }
             user.setIsActive(update.isActive());
         }
-        return AdminDtos.UserView.from(userRepository.save(user));
+        AdminDtos.UserView saved = AdminDtos.UserView.from(userRepository.save(user));
+        auditLogService.record(authentication, request, "Cập nhật tài khoản", "User #" + userId + " (" + user.getEmail() + ")", "INFO");
+        return saved;
     }
 
     @DeleteMapping("/users/{userId}")
@@ -141,7 +169,8 @@ public class AdminController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteUser(
             @PathVariable Long userId,
-            org.springframework.security.core.Authentication authentication) {
+            org.springframework.security.core.Authentication authentication,
+            HttpServletRequest request) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found."));
         if (user.getEmail().equals(authentication.getName())) {
@@ -153,6 +182,7 @@ public class AdminController {
         try {
             userRepository.delete(user);
             userRepository.flush();
+            auditLogService.record(authentication, request, "Xóa tài khoản", "User #" + userId + " (" + user.getEmail() + ")", "WARNING");
         } catch (DataIntegrityViolationException exception) {
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT, "This account has related course or learning records and cannot be deleted.", exception);
@@ -299,24 +329,81 @@ public class AdminController {
     @PostMapping("/notifications")
     @Transactional
     @ResponseStatus(HttpStatus.CREATED)
-    public int sendNotification(@Valid @RequestBody AdminDtos.NotificationInput input) {
-        List<User> recipients = input.userIds() == null || input.userIds().isEmpty()
-                ? userRepository.findAll()
-                : userRepository.findAllById(input.userIds());
+    public int sendNotification(
+            @Valid @RequestBody AdminDtos.NotificationInput input,
+            org.springframework.security.core.Authentication authentication,
+            HttpServletRequest request) {
+        String targetType = input.targetType() == null ? "ALL" : input.targetType().trim().toUpperCase(Locale.ROOT);
+        List<User> recipients;
+        if (input.userIds() != null && !input.userIds().isEmpty()) {
+            recipients = userRepository.findAllById(input.userIds());
+        } else if ("TEACHERS".equals(targetType)) {
+            recipients = userRepository.findByRoleOrderByCreatedAtDesc(Role.TEACHER);
+        } else if ("STUDENTS".equals(targetType)) {
+            recipients = userRepository.findByRoleOrderByCreatedAtDesc(Role.STUDENT);
+        } else if ("ALL".equals(targetType)) {
+            recipients = userRepository.findAll();
+        } else {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid notification target.");
+        }
         if (input.userIds() != null && !input.userIds().isEmpty()
                 && recipients.size() != input.userIds().stream().distinct().count()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "One or more recipients do not exist.");
         }
+        User sender = userRepository.findByEmail(org.springframework.security.core.context.SecurityContextHolder
+                .getContext().getAuthentication().getName())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found."));
         List<Notification> notifications = recipients.stream().map(user -> {
             Notification notification = new Notification();
             notification.setUser(user);
+            notification.setSender(sender);
+            notification.setTargetRole(targetType);
             notification.setTitle(input.title().trim());
             notification.setMessage(input.message().trim());
             notification.setIsRead(false);
             return notification;
         }).toList();
         notificationRepository.saveAll(notifications);
+        auditLogService.record(authentication, request, "Gửi thông báo", input.title().trim()
+                + " (người nhận: " + notifications.size() + ")", "INFO");
         return notifications.size();
+    }
+
+    @GetMapping("/notifications")
+    @Transactional(readOnly = true)
+    public List<AdminDtos.NotificationView> notifications() {
+        return notificationRepository.findTop300ByOrderByCreatedAtDesc().stream()
+                .map(AdminDtos.NotificationView::from)
+                .toList();
+    }
+
+    @PutMapping("/notifications/{notificationId}")
+    @Transactional
+    public AdminDtos.NotificationView updateNotification(
+            @PathVariable Long notificationId,
+            @Valid @RequestBody AdminDtos.NotificationUpdate input,
+            org.springframework.security.core.Authentication authentication,
+            HttpServletRequest request) {
+        Notification notification = notificationRepository.findById(notificationId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Notification not found."));
+        notification.setTitle(input.title().trim());
+        notification.setMessage(input.message().trim());
+        AdminDtos.NotificationView saved = AdminDtos.NotificationView.from(notificationRepository.save(notification));
+        auditLogService.record(authentication, request, "Cập nhật thông báo", saved.title(), "INFO");
+        return saved;
+    }
+
+    @DeleteMapping("/notifications/{notificationId}")
+    @Transactional
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteNotification(
+            @PathVariable Long notificationId,
+            org.springframework.security.core.Authentication authentication,
+            HttpServletRequest request) {
+        Notification notification = notificationRepository.findById(notificationId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Notification not found."));
+        notificationRepository.delete(notification);
+        auditLogService.record(authentication, request, "Xóa thông báo", notification.getTitle(), "WARNING");
     }
 
     @GetMapping("/moderation/reviews")

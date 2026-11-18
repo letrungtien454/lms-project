@@ -11,6 +11,12 @@ import java.util.Optional;
 
 public interface ReviewRepository extends JpaRepository<Review, Long> {
 
+    interface CourseRatingSummary {
+        Long getCourseId();
+        Double getAverageRating();
+        Long getReviewCount();
+    }
+
     List<Review> findByCourseIdOrderByCreatedAtDesc(Long courseId);
 
     Optional<Review> findByStudentIdAndCourseId(
@@ -24,6 +30,14 @@ public interface ReviewRepository extends JpaRepository<Review, Long> {
     );
 
     long countByCourseId(Long courseId);
+
+    @Query("""
+        SELECT r.course.id AS courseId, AVG(r.rating) AS averageRating, COUNT(r.id) AS reviewCount
+        FROM Review r
+        WHERE r.rating IS NOT NULL
+        GROUP BY r.course.id
+        """)
+    List<CourseRatingSummary> findCourseRatingSummaries();
 
     @Query("""
         SELECT AVG(r.rating)

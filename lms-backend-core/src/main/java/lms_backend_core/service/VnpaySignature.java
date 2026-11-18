@@ -14,6 +14,7 @@ public final class VnpaySignature {
 
     public static String buildQuery(Map<String, String> parameters) {
         return new TreeMap<>(parameters).entrySet().stream()
+                .filter(entry -> entry.getValue() != null && !entry.getValue().isEmpty())
                 .map(entry -> encode(entry.getKey()) + "=" + encode(entry.getValue()))
                 .collect(Collectors.joining("&"));
     }

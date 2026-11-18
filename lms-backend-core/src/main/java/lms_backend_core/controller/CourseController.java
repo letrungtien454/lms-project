@@ -4,6 +4,8 @@ import lms_backend_core.dto.CourseResponse;
 import lms_backend_core.entity.Course;
 import lms_backend_core.repository.CourseRepository;
 import lms_backend_core.repository.EnrollmentRepository;
+import lms_backend_core.repository.LessonRepository;
+import lms_backend_core.repository.ReviewRepository;
 import lms_backend_core.service.LearningFlowService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -14,6 +16,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @RestController
@@ -23,15 +26,31 @@ public class CourseController {
 
         private final CourseRepository courseRepository;
         private final EnrollmentRepository enrollmentRepository; // Inject EnrollmentRepository
+        private final LessonRepository lessonRepository;
+        private final ReviewRepository reviewRepository;
         private final LearningFlowService learningFlowService;
 
         // 1. Lấy tất cả khóa học đã xuất bản
         @GetMapping
         @Transactional(readOnly = true)
         public ResponseEntity<List<CourseResponse>> getAllPublishedCourses() {
+                Map<Long, ReviewRepository.CourseRatingSummary> ratings = reviewRepository.findCourseRatingSummaries()
+                                .stream().collect(Collectors.toMap(
+                                                ReviewRepository.CourseRatingSummary::getCourseId,
+                                                summary -> summary));
+                Map<Long, Long> durations = lessonRepository.sumDurationSecondsByCourse()
+                                .stream().collect(Collectors.toMap(
+                                                LessonRepository.CourseDurationSummary::getCourseId,
+                                                LessonRepository.CourseDurationSummary::getTotalDurationSeconds));
+                Map<Long, Long> studentCounts = enrollmentRepository.countStudentsByCourse()
+                                .stream().collect(Collectors.toMap(
+                                                EnrollmentRepository.CourseStudentCount::getCourseId,
+                                                EnrollmentRepository.CourseStudentCount::getStudentCount));
                 List<CourseResponse> courses = courseRepository.findByIsPublishedTrue()
                                 .stream()
-                                .map(course -> CourseResponse.builder()
+                                .map(course -> {
+                                        var rating = ratings.get(course.getId());
+                                        return CourseResponse.builder()
                                                 .id(course.getId())
                                                 .title(course.getTitle())
                                                 .description(course.getDescription())
@@ -44,7 +63,12 @@ public class CourseController {
                                                 .categoryName(course.getCategory() != null
                                                                 ? course.getCategory().getName()
                                                                 : "General")
-                                                .build())
+                                                .averageRating(rating == null ? null : rating.getAverageRating())
+                                                .reviewCount(rating == null ? 0 : rating.getReviewCount())
+                                                .studentCount(studentCounts.getOrDefault(course.getId(), 0L))
+                                                .totalDurationSeconds(durations.getOrDefault(course.getId(), 0L))
+                                                .build();
+                                })
                                 .collect(Collectors.toList());
 
                 return ResponseEntity.ok(courses);
@@ -73,6 +97,10 @@ public class CourseController {
                                 .instructorName(course.getTeacher() != null ? course.getTeacher().getFullName()
                                                 : "EduFlow")
                                 .categoryName(course.getCategory() != null ? course.getCategory().getName() : "General")
+                                .averageRating(reviewRepository.getAverageRating(id))
+                                .reviewCount(reviewRepository.countByCourseId(id))
+                                .studentCount(enrollmentRepository.countByCourseId(id))
+                                .totalDurationSeconds(lessonRepository.sumDurationSecondsByCourseId(id))
                                 .chapters(course.getChapters().stream()
                                                 .map(chapter -> lms_backend_core.dto.ChapterResponse.from(chapter, enrolled))
                                                 .toList())

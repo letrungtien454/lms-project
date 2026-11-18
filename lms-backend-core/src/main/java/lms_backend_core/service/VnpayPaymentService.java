@@ -85,7 +85,10 @@ public class VnpayPaymentService {
 
     @Transactional
     public Map<String, String> processIpn(Map<String, String> requestParameters) {
-        Map<String, String> signedParameters = new LinkedHashMap<>(requestParameters);
+        Map<String, String> signedParameters = new LinkedHashMap<>();
+        requestParameters.forEach((key, value) -> {
+            if (key.startsWith("vnp_")) signedParameters.put(key, value);
+        });
         String suppliedHash = signedParameters.remove("vnp_SecureHash");
         signedParameters.remove("vnp_SecureHashType");
 
@@ -132,6 +135,21 @@ public class VnpayPaymentService {
                     .build());
         }
         return ipnResponse("00", "Confirm Success");
+    }
+
+    @Transactional
+    public Map<String, String> processReturn(Map<String, String> requestParameters) {
+        Map<String, String> response = processIpn(requestParameters);
+        if (!"00".equals(response.get("RspCode"))) {
+            return Map.of("status", "INVALID");
+        }
+
+        PaymentOrder order = paymentOrderRepository.findByTxnRef(requestParameters.get("vnp_TxnRef"))
+                .orElseThrow(() -> new IllegalStateException("VNPay confirmed an order that could not be found."));
+        return Map.of(
+                "orderId", order.getId().toString(),
+                "courseId", order.getCourse().getId().toString(),
+                "status", order.getStatus().name());
     }
 
     @Transactional(readOnly = true)

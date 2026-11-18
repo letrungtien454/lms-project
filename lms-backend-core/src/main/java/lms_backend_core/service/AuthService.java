@@ -6,6 +6,7 @@ import lms_backend_core.dto.RegisterRequest;
 import lms_backend_core.entity.Role;
 import lms_backend_core.entity.User;
 import lms_backend_core.repository.UserRepository;
+import lms_backend_core.repository.SystemSettingRepository;
 import lms_backend_core.security.JwtTokenProvider;
 import com.google.api.client.googleapis.auth.oauth2.GoogleIdToken;
 import com.google.api.client.googleapis.auth.oauth2.GoogleIdToken.Payload;
@@ -27,6 +28,7 @@ import java.util.UUID;
 public class AuthService {
 
     private final UserRepository userRepository;
+    private final SystemSettingRepository systemSettingRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
     private final GoogleIdTokenVerifier googleIdTokenVerifier;
@@ -35,6 +37,9 @@ public class AuthService {
     private String googleClientId;
 
     public String register(RegisterRequest request) {
+        if (systemSettingRepository.findById(1L).map(setting -> !setting.isAllowRegistration()).orElse(false)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Đăng ký tài khoản mới hiện đang tạm khóa.");
+        }
         String email = normalizeEmail(request.getEmail());
         if (userRepository.existsByEmailIgnoreCase(email)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Email is already in use");
@@ -94,6 +99,9 @@ public class AuthService {
 
         String normalizedEmail = normalizeEmail(email);
         User user = userRepository.findByEmailIgnoreCase(normalizedEmail).orElseGet(() -> {
+            if (systemSettingRepository.findById(1L).map(setting -> !setting.isAllowRegistration()).orElse(false)) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Đăng ký tài khoản mới hiện đang tạm khóa.");
+            }
             String fullName = (String) payload.get("name");
             if (fullName == null || fullName.isBlank()) {
                 fullName = normalizedEmail.substring(0, normalizedEmail.indexOf('@'));

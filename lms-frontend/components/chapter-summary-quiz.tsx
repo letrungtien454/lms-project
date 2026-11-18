@@ -46,6 +46,8 @@ type QuizResult = {
   score: number | string;
   elapsedSeconds: number;
   autoSubmitted: boolean;
+  passScore: number;
+  passed: boolean;
   answers: QuizAnswerResult[];
 };
 
@@ -55,6 +57,7 @@ type Availability = {
   availableQuestionCount: number;
   questionCount: number;
   timeLimitMinutes: number;
+  passScore: number;
 };
 
 type AttemptStatus = {
@@ -98,14 +101,17 @@ export default function ChapterSummaryQuiz({
   chapterId,
   lessonId,
   chapterTitle,
+  onPassed,
 }: {
   chapterId: number | string;
   lessonId: number | string;
   chapterTitle?: string;
+  onPassed: () => void;
 }) {
   const [availableCount, setAvailableCount] = useState(0);
   const [questionCount, setQuestionCount] = useState(10);
   const [timeLimitMinutes, setTimeLimitMinutes] = useState(15);
+  const [passScore, setPassScore] = useState(80);
   const [attempt, setAttempt] = useState<QuizAttempt | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [result, setResult] = useState<QuizResult | null>(null);
@@ -164,6 +170,7 @@ export default function ChapterSummaryQuiz({
       setAvailableCount(availability.availableQuestionCount);
       setQuestionCount(availability.questionCount);
       setTimeLimitMinutes(availability.timeLimitMinutes);
+      setPassScore(availability.passScore);
     } catch (reqErr) {
       setError(reqErr instanceof Error ? reqErr.message : "Không thể tải ngân hàng câu hỏi.");
     } finally {
@@ -224,6 +231,7 @@ export default function ChapterSummaryQuiz({
         }
       );
       setResult(submitted);
+      if (submitted.passed) onPassed();
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Không thể nộp bài kiểm tra.");
     } finally {
@@ -251,6 +259,7 @@ export default function ChapterSummaryQuiz({
         if (response.submitted && response.result) {
           autoSubmitStarted.current = true;
           setResult(response.result);
+          if (response.result.passed) onPassed();
         }
       })
       .catch((requestError: unknown) => {
@@ -340,7 +349,7 @@ export default function ChapterSummaryQuiz({
                 <Award className="size-5 shrink-0 text-emerald-500" />
                 <div>
                   <p className="text-[10px] font-bold uppercase text-slate-400">Điểm đạt</p>
-                  <p className="text-xs font-black text-slate-800">80%</p>
+                  <p className="text-xs font-black text-slate-800">{passScore}%</p>
                 </div>
               </div>
 
@@ -382,7 +391,7 @@ export default function ChapterSummaryQuiz({
 
   // ==================== SCREEN 2: MÀN HÌNH KẾT QUẢ (RESULT) ====================
   if (result) {
-    const isPassed = Number(result.score) >= 80;
+    const isPassed = result.passed;
 
     return (
       <section className="mx-auto w-full max-w-4xl rounded-3xl border border-slate-200/80 bg-white p-6 shadow-xs sm:p-8 space-y-6">
@@ -399,6 +408,9 @@ export default function ChapterSummaryQuiz({
           </h2>
           <p className="text-xs text-slate-500">
             Thời gian hoàn thành: <strong>{formatTime(result.elapsedSeconds)}</strong>
+            <span className="block">
+              Điểm đạt yêu cầu: <strong>{result.passScore}%</strong>
+            </span>
             {result.autoSubmitted && (
               <span className="block text-amber-600 font-semibold mt-1">
                 (Đã tự động nộp khi hết giờ)
@@ -485,7 +497,7 @@ export default function ChapterSummaryQuiz({
           }}
           className="flex items-center justify-center gap-2 w-full rounded-2xl border border-slate-200 py-3 text-xs font-bold text-slate-700 hover:bg-slate-50 cursor-pointer"
         >
-          <RotateCcw className="size-4" /> Làm đề khác
+          <RotateCcw className="size-4" /> {isPassed ? "Làm đề khác" : "Làm lại bài kiểm tra"}
         </button>
       </section>
     );

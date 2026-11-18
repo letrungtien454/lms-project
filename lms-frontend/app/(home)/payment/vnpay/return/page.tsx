@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { getAccessToken } from "@/lib/auth-session";
 import { Suspense } from "react";
 import { CheckCircle2, Loader2, RefreshCw, XCircle } from "lucide-react";
@@ -13,8 +13,11 @@ type PaymentStatus = {
 };
 
 function VnpayReturnStatus() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const orderId = searchParams.get("orderId");
+  const callbackStatus = searchParams.get("status");
+  const callbackCourseId = searchParams.get("courseId");
   const [payment, setPayment] = useState<PaymentStatus | null>(null);
   const [error, setError] = useState("");
   const [isChecking, setIsChecking] = useState(true);
@@ -26,6 +29,26 @@ function VnpayReturnStatus() {
     const checkPayment = async () => {
       if (!orderId || !/^\d+$/.test(orderId)) {
         setError("Không tìm thấy mã giao dịch hợp lệ.");
+        setIsChecking(false);
+        return;
+      }
+
+      if (callbackStatus) {
+        if (
+          (callbackStatus === "PAID" || callbackStatus === "FAILED") &&
+          callbackCourseId &&
+          /^\d+$/.test(callbackCourseId)
+        ) {
+          setPayment({
+            orderId: Number(orderId),
+            courseId: Number(callbackCourseId),
+            status: callbackStatus,
+          });
+          setError("");
+        } else {
+          setPayment(null);
+          setError("Không thể xác thực kết quả giao dịch từ VNPay.");
+        }
         setIsChecking(false);
         return;
       }
@@ -71,12 +94,20 @@ function VnpayReturnStatus() {
     return () => {
       cancelled = true;
     };
-  }, [orderId, retry]);
+  }, [callbackCourseId, callbackStatus, orderId, retry]);
 
   const isPaid = payment?.status === "PAID";
   const isFailed = payment?.status === "FAILED";
   const isInvalidOrderId = !orderId || !/^\d+$/.test(orderId);
   const hasError = Boolean(error);
+
+  useEffect(() => {
+    if (!isPaid || !payment) return;
+    const timer = window.setTimeout(() => {
+      router.replace(`/learning/${payment.courseId}`);
+    }, 2500);
+    return () => window.clearTimeout(timer);
+  }, [isPaid, payment, router]);
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-slate-50 px-5 py-12">
@@ -104,7 +135,7 @@ function VnpayReturnStatus() {
         </h1>
         <p className="mt-3 text-sm leading-6 text-slate-600">
           {error || (isPaid
-            ? "Giao dịch đã được VNPay xác nhận. Bạn có thể bắt đầu học ngay."
+            ? "Giao dịch đã được xác nhận. Đang chuyển bạn đến bài học của khóa học..."
             : isFailed
               ? "Giao dịch bị từ chối hoặc đã bị hủy. Bạn có thể quay lại khóa học để thử lại."
               : "VNPay đã chuyển bạn về EduFlow. Hệ thống đang chờ thông báo xác nhận giao dịch an toàn từ VNPay.")}
@@ -120,7 +151,7 @@ function VnpayReturnStatus() {
               href={`/learning/${payment.courseId}`}
               className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white hover:bg-blue-700"
             >
-              Vào học
+              Vào học ngay
             </a>
           )}
           {!isChecking && !isPaid && !isFailed && !isInvalidOrderId && (

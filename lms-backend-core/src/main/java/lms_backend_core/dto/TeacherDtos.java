@@ -94,6 +94,7 @@ public final class TeacherDtos {
             String studentEmail,
             Long courseId,
             String courseTitle,
+            String avatarUrl,
             BigDecimal amountPaid,
             OffsetDateTime enrolledAt,
             long completedLessons,
@@ -106,12 +107,17 @@ public final class TeacherDtos {
             String title,
             String message,
             Boolean isRead,
-            OffsetDateTime createdAt) {
+            OffsetDateTime createdAt,
+            String senderName) {
 
         public static NotificationView from(Notification notification) {
             return new NotificationView(notification.getId(), notification.getTitle(), notification.getMessage(),
-                    notification.getIsRead(), notification.getCreatedAt());
+                    notification.getIsRead(), notification.getCreatedAt(),
+                    notification.getSender() == null ? "Quản trị viên" : notification.getSender().getFullName());
         }
+    }
+
+    public record StudentEnrollmentInput(@NotBlank String studentEmail, Long courseId) {
     }
 
     public record RegistrationPoint(LocalDate date, long count) {

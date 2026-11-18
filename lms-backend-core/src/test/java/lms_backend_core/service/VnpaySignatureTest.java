@@ -26,4 +26,14 @@ class VnpaySignatureTest {
                 "vnp_OrderInfo", "Thanh toan khoa hoc"), signature, secret));
         assertFalse(VnpaySignature.isValid(parameters, null, secret));
     }
+
+    @Test
+    void omitsEmptyFieldsFromSignedQuery() {
+        Map<String, String> parameters = new LinkedHashMap<>();
+        parameters.put("vnp_Amount", "50000000");
+        parameters.put("vnp_BankCode", "");
+        parameters.put("vnp_CardType", null);
+
+        assertEquals("vnp_Amount=50000000", VnpaySignature.buildQuery(parameters));
+    }
 }

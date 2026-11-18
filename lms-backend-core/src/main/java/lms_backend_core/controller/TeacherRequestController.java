@@ -8,6 +8,7 @@ import lms_backend_core.entity.TeacherRequestStatus;
 import lms_backend_core.entity.User;
 import lms_backend_core.repository.TeacherRequestRepository;
 import lms_backend_core.repository.UserRepository;
+import lms_backend_core.repository.SystemSettingRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -25,6 +26,7 @@ public class TeacherRequestController {
 
     private final TeacherRequestRepository teacherRequestRepository;
     private final UserRepository userRepository;
+    private final SystemSettingRepository systemSettingRepository;
 
     @PostMapping
     @Transactional
@@ -44,7 +46,14 @@ public class TeacherRequestController {
         request.setExperience(submission.experience());
         request.setCvUrl(submission.cvUrl());
         request.setAdminNote(null);
-        request.setStatus(TeacherRequestStatus.PENDING);
+        boolean autoApprove = systemSettingRepository.findById(1L)
+                .map(setting -> setting.isAutoApproveTeachers())
+                .orElse(false);
+        request.setStatus(autoApprove ? TeacherRequestStatus.APPROVED : TeacherRequestStatus.PENDING);
+        if (autoApprove) {
+            user.setRole(Role.TEACHER);
+            userRepository.save(user);
+        }
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(TeacherRequestDtos.Response.from(teacherRequestRepository.save(request)));
     }

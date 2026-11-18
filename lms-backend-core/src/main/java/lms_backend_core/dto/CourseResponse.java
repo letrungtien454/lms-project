@@ -24,4 +24,8 @@ public class CourseResponse {
     private String instructorName;
     private String categoryName;
     private List<ChapterResponse> chapters;
+    private Double averageRating;
+    private long reviewCount;
+    private long studentCount;
+    private long totalDurationSeconds;
 }

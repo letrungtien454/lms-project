@@ -26,7 +26,8 @@ public final class ChapterQuizDtos {
             Long chapterId,
             int availableQuestionCount,
             int questionCount,
-            int timeLimitMinutes) {
+            int timeLimitMinutes,
+            int passScore) {
     }
 
     public record AttemptQuestion(Long id, String questionText, List<Option> options) {
@@ -80,7 +81,9 @@ public final class ChapterQuizDtos {
             OffsetDateTime startedAt,
             OffsetDateTime expiresAt,
             OffsetDateTime submittedAt,
-            List<AnswerReview> answers) {
+            List<AnswerReview> answers,
+            int passScore,
+            boolean passed) {
     }
 
     public record AttemptStatus(

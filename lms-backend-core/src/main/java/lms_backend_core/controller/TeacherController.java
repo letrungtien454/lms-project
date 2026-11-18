@@ -11,6 +11,8 @@ import lms_backend_core.entity.Notification;
 import lms_backend_core.entity.Review;
 import lms_backend_core.entity.User;
 import lms_backend_core.repository.*;
+import lms_backend_core.repository.SystemSettingRepository;
+import lms_backend_core.service.AuditLogService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
@@ -25,6 +27,7 @@ import java.time.YearMonth;
 import java.time.ZoneId;
 import java.util.*;
 import java.util.stream.Collectors;
+import jakarta.servlet.http.HttpServletRequest;
 
 @RestController
 @RequestMapping("/api/teacher")
@@ -41,6 +44,8 @@ public class TeacherController {
     private final NotificationRepository notificationRepository;
     private final LearningProgressRepository learningProgressRepository;
     private final LessonRepository lessonRepository;
+    private final AuditLogService auditLogService;
+    private final SystemSettingRepository systemSettingRepository;
 
     @GetMapping("/dashboard")
     @Transactional(readOnly = true)
@@ -173,9 +178,77 @@ public class TeacherController {
                     return new TeacherDtos.StudentEnrollmentView(
                             enrollment.getId(), enrollment.getStudent().getId(),
                             enrollment.getStudent().getFullName(), enrollment.getStudent().getEmail(),
-                            courseId, enrollment.getCourse().getTitle(), enrollment.getAmountPaid(),
+                            courseId, enrollment.getCourse().getTitle(), enrollment.getStudent().getAvatarUrl(), enrollment.getAmountPaid(),
                             enrollment.getEnrolledAt(), completedLessons, totalLessons, progressPercent);
                 }).toList();
+    }
+
+    @PostMapping("/students")
+    @Transactional
+    @org.springframework.web.bind.annotation.ResponseStatus(HttpStatus.CREATED)
+    public TeacherDtos.StudentEnrollmentView addStudent(
+            @Valid @RequestBody TeacherDtos.StudentEnrollmentInput input,
+            Authentication authentication,
+            HttpServletRequest request) {
+        User teacher = currentTeacher(authentication);
+        User student = userRepository.findByEmailIgnoreCase(input.studentEmail().trim())
+                .filter(user -> user.getRole() == lms_backend_core.entity.Role.STUDENT)
+                .filter(user -> Boolean.TRUE.equals(user.getIsActive()))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "Không tìm thấy tài khoản học viên đang hoạt động với email này."));
+        Course course = ownedCourse(input.courseId(), teacher);
+        if (enrollmentRepository.existsByStudentIdAndCourseId(student.getId(), course.getId())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Học viên đã đăng ký khóa học này.");
+        }
+        Enrollment enrollment = Enrollment.builder()
+                .student(student)
+                .course(course)
+                .amountPaid(BigDecimal.ZERO)
+                .build();
+        Enrollment saved = enrollmentRepository.save(enrollment);
+        auditLogService.record(authentication, request, "Thêm học viên vào khóa học",
+                student.getFullName() + " - " + course.getTitle(), "INFO");
+        return studentEnrollmentView(saved);
+    }
+
+    @PutMapping("/students/{enrollmentId}")
+    @Transactional
+    public TeacherDtos.StudentEnrollmentView updateStudentEnrollment(
+            @PathVariable Long enrollmentId,
+            @Valid @RequestBody TeacherDtos.StudentEnrollmentInput input,
+            Authentication authentication,
+            HttpServletRequest request) {
+        User teacher = currentTeacher(authentication);
+        Enrollment enrollment = ownedEnrollment(enrollmentId, teacher);
+        Course course = ownedCourse(input.courseId(), teacher);
+        if (!course.getId().equals(enrollment.getCourse().getId())
+                && enrollmentRepository.existsByStudentIdAndCourseId(enrollment.getStudent().getId(), course.getId())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Học viên đã đăng ký khóa học này.");
+        }
+        enrollment.setCourse(course);
+        Enrollment saved = enrollmentRepository.save(enrollment);
+        auditLogService.record(authentication, request, "Cập nhật đăng ký học viên",
+                enrollment.getStudent().getFullName() + " - " + course.getTitle(), "INFO");
+        return studentEnrollmentView(saved);
+    }
+
+    @DeleteMapping("/students/{enrollmentId}")
+    @Transactional
+    @org.springframework.web.bind.annotation.ResponseStatus(HttpStatus.NO_CONTENT)
+    public void removeStudentEnrollment(
+            @PathVariable Long enrollmentId,
+            Authentication authentication,
+            HttpServletRequest request) {
+        Enrollment enrollment = ownedEnrollment(enrollmentId, currentTeacher(authentication));
+        String target = enrollment.getStudent().getFullName() + " - " + enrollment.getCourse().getTitle();
+        try {
+            enrollmentRepository.delete(enrollment);
+            enrollmentRepository.flush();
+        } catch (org.springframework.dao.DataIntegrityViolationException exception) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Không thể xóa lượt đăng ký vì học viên đã có dữ liệu học tập trong khóa học.", exception);
+        }
+        auditLogService.record(authentication, request, "Xóa đăng ký học viên", target, "WARNING");
     }
 
     @GetMapping("/reviews")
@@ -248,6 +321,14 @@ public class TeacherController {
 
     private void applyCourseInput(Course course, TeacherDtos.CourseInput input, User teacher) {
         course.setTeacher(teacher);
+        long minimumPrice = systemSettingRepository.findById(1L)
+                .map(setting -> setting.getMinCoursePrice())
+                .orElse(0L);
+        if (input.price() != null && input.price().signum() > 0
+                && input.price().compareTo(BigDecimal.valueOf(minimumPrice)) < 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Giá khóa học không được thấp hơn mức tối thiểu " + minimumPrice + " VND.");
+        }
         course.setTitle(input.title().trim());
         course.setDescription(input.description());
         course.setThumbnailUrl(input.thumbnailUrl());
@@ -255,8 +336,10 @@ public class TeacherController {
         course.setOutcomes(input.outcomes());
         course.setPrice(input.price() == null ? BigDecimal.ZERO : input.price());
         if (input.level() != null) course.setLevel(input.level());
-        course.setIsPublished(Boolean.TRUE.equals(input.isPublished()));
-        course.setStatus(Boolean.TRUE.equals(input.isPublished()) ? CourseStatus.PUBLISHED : CourseStatus.PENDING);
+        boolean publish = Boolean.TRUE.equals(input.isPublished())
+                || systemSettingRepository.findById(1L).map(setting -> setting.isAutoApproveCourses()).orElse(false);
+        course.setIsPublished(publish);
+        course.setStatus(publish ? CourseStatus.PUBLISHED : CourseStatus.PENDING);
         if (input.categoryId() == null) {
             course.setCategory(null);
         } else {
@@ -269,5 +352,43 @@ public class TeacherController {
     private User currentTeacher(Authentication authentication) {
         return userRepository.findByEmail(authentication.getName())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found."));
+    }
+
+    private Course ownedCourse(Long courseId, User teacher) {
+        if (courseId == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Vui lòng chọn khóa học.");
+        }
+        return courseRepository.findById(courseId)
+                .filter(course -> course.getTeacher().getId().equals(teacher.getId()))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy khóa học."));
+    }
+
+    private Enrollment ownedEnrollment(Long enrollmentId, User teacher) {
+        Enrollment enrollment = enrollmentRepository.findById(enrollmentId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy đăng ký."));
+        if (!enrollment.getCourse().getTeacher().getId().equals(teacher.getId())) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy đăng ký.");
+        }
+        return enrollment;
+    }
+
+    private TeacherDtos.StudentEnrollmentView studentEnrollmentView(Enrollment enrollment) {
+        long totalLessons = lessonRepository.countByTeacher(enrollment.getCourse().getTeacher().getId()).stream()
+                .filter(item -> item.getCourseId().equals(enrollment.getCourse().getId()))
+                .mapToLong(LessonRepository.CourseLessonCount::getLessonCount)
+                .findFirst().orElse(0L);
+        long completedLessons = learningProgressRepository
+                .countByTeacherAndStatus(enrollment.getCourse().getTeacher().getId(), LearningProgress.Status.COMPLETED)
+                .stream()
+                .filter(item -> item.getStudentId().equals(enrollment.getStudent().getId())
+                        && item.getCourseId().equals(enrollment.getCourse().getId()))
+                .mapToLong(LearningProgressRepository.CompletedProgressCount::getCompletedCount)
+                .findFirst().orElse(0L);
+        int progress = totalLessons == 0 ? 0 : (int) Math.min(100, completedLessons * 100 / totalLessons);
+        return new TeacherDtos.StudentEnrollmentView(
+                enrollment.getId(), enrollment.getStudent().getId(), enrollment.getStudent().getFullName(),
+                enrollment.getStudent().getEmail(), enrollment.getCourse().getId(), enrollment.getCourse().getTitle(),
+                enrollment.getStudent().getAvatarUrl(), enrollment.getAmountPaid(), enrollment.getEnrolledAt(),
+                completedLessons, totalLessons, progress);
     }
 }

@@ -5,6 +5,7 @@ import lms_backend_core.dto.LoginRequest;
 import lms_backend_core.entity.Role;
 import lms_backend_core.entity.User;
 import lms_backend_core.repository.UserRepository;
+import lms_backend_core.repository.SystemSettingRepository;
 import lms_backend_core.security.JwtTokenProvider;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -22,11 +23,12 @@ import static org.mockito.Mockito.when;
 class AuthServiceTest {
 
     private final UserRepository userRepository = mock(UserRepository.class);
+    private final SystemSettingRepository systemSettingRepository = mock(SystemSettingRepository.class);
     private final PasswordEncoder passwordEncoder = mock(PasswordEncoder.class);
     private final JwtTokenProvider jwtTokenProvider = mock(JwtTokenProvider.class);
     private final GoogleIdTokenVerifier googleIdTokenVerifier = mock(GoogleIdTokenVerifier.class);
     private final AuthService service = new AuthService(
-            userRepository, passwordEncoder, jwtTokenProvider, googleIdTokenVerifier);
+            userRepository, systemSettingRepository, passwordEncoder, jwtTokenProvider, googleIdTokenVerifier);
 
     @Test
     void unknownEmailReturnsUnauthorizedInsteadOfInternalServerError() {

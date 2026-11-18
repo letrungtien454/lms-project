@@ -26,9 +26,7 @@ type Profile = {
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
 
 function getMediaUrl(pathUrl?: string | null): string {
-  if (!pathUrl || !pathUrl.trim()) {
-    return "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300";
-  }
+  if (!pathUrl || !pathUrl.trim()) return "";
   if (pathUrl.startsWith("http://") || pathUrl.startsWith("https://")) {
     return pathUrl;
   }
@@ -105,7 +103,7 @@ export default function TeacherSettingsPage() {
         formData.append("file", selectedFile);
 
         // Gọi API Upload File ảnh (Ví dụ: POST /api/upload)
-        const uploadRes = await apiRequest<{ fileUrl: string }>("/api/upload", {
+        const uploadRes = await apiRequest<{ fileUrl: string }>("/api/users/upload", {
           method: "POST",
           body: formData, // apiRequest sẽ tự nhận diện FormData nếu xử lý đúng
         });
@@ -121,6 +119,8 @@ export default function TeacherSettingsPage() {
 
       setProfile(updated);
       setAvatarUrl(updated.avatarUrl ?? "");
+      window.sessionStorage.setItem("userName", updated.fullName);
+      window.dispatchEvent(new Event("profile-updated"));
       setSelectedFile(null);
       setPreviewAvatar(null);
       setNotice("Đã cập nhật hồ sơ cá nhân thành công.");
@@ -264,11 +264,11 @@ export default function TeacherSettingsPage() {
                 
                 {/* Khung Ảnh Đại Diện */}
                 <div className="relative group">
-                  <img
+                  {previewAvatar || getMediaUrl(avatarUrl) ? <img
                     src={previewAvatar || getMediaUrl(avatarUrl)}
                     alt={fullName}
                     className="size-28 rounded-full object-cover ring-4 ring-blue-50 shadow-md"
-                  />
+                  /> : <span className="flex size-28 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-blue-700 text-2xl font-bold text-white ring-4 ring-blue-50 shadow-md">{fullName.trim().split(/\s+/).filter(Boolean).slice(-2).map((part) => part.charAt(0).toUpperCase()).join("") || "GV"}</span>}
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}

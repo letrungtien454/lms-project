@@ -20,6 +20,7 @@ type Course = { id: number; title: string };
 type Chapter = { id: number; title: string };
 
 type QuestionOption = { id: string; text: string };
+type ParsedQuestionOption = QuestionOption & { originalId: string };
 
 type Question = {
   id: number;
@@ -35,17 +36,70 @@ type Question = {
   createdAt?: string;
 };
 
-function parseOptions(value: unknown): QuestionOption[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter(
-    (option): option is QuestionOption =>
-      typeof option === "object" &&
-      option !== null &&
-      "id" in option &&
-      typeof option.id === "string" &&
-      "text" in option &&
-      typeof option.text === "string"
-  );
+const questionTypeLabels: Record<string, string> = {
+  MULTIPLE_CHOICE: "Trắc nghiệm",
+  ESSAY: "Tự luận",
+  CODE: "Lập trình",
+};
+
+const difficultyLabels: Record<string, string> = {
+  EASY: "Dễ",
+  MEDIUM: "Trung bình",
+  HARD: "Khó",
+};
+
+function parseOptions(value: unknown): ParsedQuestionOption[] {
+  let parsed = value;
+  if (typeof parsed === "string") {
+    try {
+      parsed = JSON.parse(parsed) as unknown;
+    } catch {
+      return [];
+    }
+  }
+  if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+    const record = parsed as Record<string, unknown>;
+    const nestedOptions = record.options ?? record.answers ?? record.choices;
+    if (Array.isArray(nestedOptions)) parsed = nestedOptions;
+    else {
+      parsed = Object.entries(record)
+        .filter(([key]) => /^(?:[A-D]|OPTION[_ -]?[A-D1-4])$/i.test(key))
+        .map(([id, text]) => ({ id: id.toUpperCase(), text }));
+    }
+  }
+  if (!Array.isArray(parsed)) return [];
+  return parsed.flatMap((option, index) => {
+    const record = typeof option === "string"
+      ? { text: option }
+      : typeof option === "object" && option !== null
+        ? option as Record<string, unknown>
+        : null;
+    if (!record) return [];
+    const rawId = record.id ?? record.key ?? record.label ?? record.optionId;
+    const originalId = typeof rawId === "string" || typeof rawId === "number"
+      ? String(rawId).trim().toUpperCase()
+      : String.fromCharCode(65 + index);
+    const text = record.text ?? record.content ?? record.value ?? record.answer ?? record.optionText;
+    const letter = /^[A-D]$/.test(originalId)
+      ? originalId
+      : /^[1-4]$/.test(originalId)
+        ? String.fromCharCode(64 + Number(originalId))
+        : /^[A-D]$/.test(String.fromCharCode(65 + index))
+          ? String.fromCharCode(65 + index)
+          : originalId;
+    return typeof text === "string" ? [{ id: letter, originalId, text }] : [];
+  });
+}
+
+function getCanonicalCorrectOption(correctOption: string, options: ParsedQuestionOption[]): string {
+  const normalized = correctOption.trim().toUpperCase();
+  const byId = options.find((option) => option.id === normalized || option.originalId === normalized);
+  if (byId) return byId.id;
+  const numericIndex = Number(normalized.replace(/^OPTION[_ -]?/, ""));
+  if (Number.isInteger(numericIndex) && numericIndex >= 1 && numericIndex <= options.length) {
+    return options[numericIndex - 1].id;
+  }
+  return "A";
 }
 
 export default function QuestionBankPage() {
@@ -100,8 +154,8 @@ export default function QuestionBankPage() {
     if (questionResult.status === "fulfilled") {
       setQuestions(questionResult.value);
     } else {
-      setQuestions([]);
-      setError("Không tải được danh sách câu hỏi.");
+      const cause = questionResult.reason;
+      setError(cause instanceof Error ? cause.message : "Không tải được danh sách câu hỏi.");
     }
 
     if (courseResult.status === "fulfilled") {
@@ -125,7 +179,10 @@ export default function QuestionBankPage() {
     }
     apiRequest<Chapter[]>(`/api/teacher/courses/${questionCourseId}/chapters`)
       .then((data) => setChapters(data || []))
-      .catch(() => setChapters([]));
+    .catch((cause: unknown) => {
+      setChapters([]);
+      setError(cause instanceof Error ? cause.message : "Không tải được chương của khóa học.");
+    });
   }, [questionCourseId]);
 
   // Reset Form khi đóng/mở
@@ -157,15 +214,18 @@ export default function QuestionBankPage() {
     setQuestionChapterId(q.chapterId ? String(q.chapterId) : "");
     setQuestionType(q.questionType || "MULTIPLE_CHOICE");
     setDifficulty(q.difficulty || "EASY");
-    setCorrectOption(q.correctOption || "A");
+    setCorrectOption(q.correctOption ? getCanonicalCorrectOption(q.correctOption, parseOptions(q.optionsJson)) : "A");
     setExplanation(q.explanation || "");
     setHint(q.hint || "");
 
     const options = parseOptions(q.optionsJson);
-    setOptionA(options.find((o) => o.id === "A")?.text || "");
-    setOptionB(options.find((o) => o.id === "B")?.text || "");
-    setOptionC(options.find((o) => o.id === "C")?.text || "");
-    setOptionD(options.find((o) => o.id === "D")?.text || "");
+    if (q.questionType === "MULTIPLE_CHOICE" && options.length === 0) {
+      setError("Câu hỏi cũ không có đáp án ở định dạng nhận diện được.");
+    }
+    setOptionA(options.find((o) => o.id === "A")?.text || options[0]?.text || "");
+    setOptionB(options.find((o) => o.id === "B")?.text || options[1]?.text || "");
+    setOptionC(options.find((o) => o.id === "C")?.text || options[2]?.text || "");
+    setOptionD(options.find((o) => o.id === "D")?.text || options[3]?.text || "");
 
     setShowForm(true);
   };
@@ -257,16 +317,22 @@ export default function QuestionBankPage() {
 
     setError("");
     setNotice("");
-    try {
-      await Promise.all(
-        selectedIds.map((id) => apiRequest(`/api/teacher/question-bank/${id}`, { method: "DELETE" }))
-      );
-      setNotice(`Đã xóa thành công ${selectedIds.length} câu hỏi.`);
-      setSelectedIds([]);
-      await loadData();
-    } catch (cause: any) {
-      setError(cause instanceof Error ? cause.message : "Có lỗi xảy ra khi xóa danh sách đã chọn.");
+    const deletedIds: number[] = [];
+    const failures: string[] = [];
+    for (const id of selectedIds) {
+      try {
+        await apiRequest(`/api/teacher/question-bank/${id}`, { method: "DELETE" });
+        deletedIds.push(id);
+      } catch (cause) {
+        failures.push(cause instanceof Error ? cause.message : `Không xóa được câu hỏi #${id}.`);
+      }
     }
+    if (deletedIds.length > 0) {
+      setSelectedIds((current) => current.filter((id) => !deletedIds.includes(id)));
+      setNotice(`Đã xóa ${deletedIds.length} câu hỏi${failures.length ? `; ${failures.length} câu không thể xóa` : ""}.`);
+    }
+    if (failures.length > 0) setError(failures.join(" "));
+    await loadData();
   };
 
   // Lọc câu hỏi hiển thị
@@ -498,12 +564,12 @@ export default function QuestionBankPage() {
                         <td className="p-3.5 font-semibold text-slate-600">{courseObj?.title || "Dùng chung"}</td>
                         <td className="p-3.5">
                           <span className="bg-blue-50 text-blue-600 font-bold px-2 py-0.5 rounded text-[10px]">
-                            {q.questionType || "Trắc nghiệm"}
+                            {questionTypeLabels[q.questionType ?? "MULTIPLE_CHOICE"] ?? "Trắc nghiệm"}
                           </span>
                         </td>
                         <td className="p-3.5">
                           <span className="text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded text-[10px]">
-                            {q.difficulty || "Dễ"}
+                            {difficultyLabels[q.difficulty ?? "EASY"] ?? "Dễ"}
                           </span>
                         </td>
                         <td className="p-3.5 text-right">
@@ -691,6 +757,7 @@ export default function QuestionBankPage() {
                       <span className="font-bold text-blue-600">A</span>
                       <input
                         type="text"
+                        required={questionType === "MULTIPLE_CHOICE"}
                         value={optionA}
                         onChange={(e) => setOptionA(e.target.value)}
                         placeholder="Nhập đáp án A..."
@@ -702,6 +769,7 @@ export default function QuestionBankPage() {
                       <span className="font-bold text-blue-600">B</span>
                       <input
                         type="text"
+                        required={questionType === "MULTIPLE_CHOICE"}
                         value={optionB}
                         onChange={(e) => setOptionB(e.target.value)}
                         placeholder="Nhập đáp án B..."
@@ -738,10 +806,14 @@ export default function QuestionBankPage() {
                         onChange={(e) => setCorrectOption(e.target.value)}
                         className="w-32 rounded-xl border border-slate-200 p-2 text-xs font-bold text-emerald-600 outline-none focus:border-blue-500 cursor-pointer"
                       >
-                        <option value="A">Đáp án A</option>
-                        <option value="B">Đáp án B</option>
-                        <option value="C">Đáp án C</option>
-                        <option value="D">Đáp án D</option>
+                        {[
+                          ["A", optionA],
+                          ["B", optionB],
+                          ["C", optionC],
+                          ["D", optionD],
+                        ].filter(([, optionText]) => optionText.trim()).map(([id]) => (
+                          <option key={id} value={id}>Đáp án {id}</option>
+                        ))}
                       </select>
                     </div>
                   </div>

@@ -25,8 +25,10 @@ class ChapterQuizServiceTest {
     private final ChapterQuizQuestionRepository questionRepository = mock(ChapterQuizQuestionRepository.class);
     private final ChapterQuizAttemptRepository attemptRepository = mock(ChapterQuizAttemptRepository.class);
     private final QuizRepository quizRepository = mock(QuizRepository.class);
+    private final LearningProgressRepository progressRepository = mock(LearningProgressRepository.class);
     private final ChapterQuizService service = new ChapterQuizService(
-            userRepository, chapterRepository, enrollmentRepository, questionRepository, attemptRepository, quizRepository);
+            userRepository, chapterRepository, enrollmentRepository, questionRepository, attemptRepository,
+            quizRepository, progressRepository);
     private final Authentication authentication =
             new UsernamePasswordAuthenticationToken("student@example.test", "password", List.of());
     private final User student = new User();
@@ -73,6 +75,7 @@ class ChapterQuizServiceTest {
         assertEquals(2, availability.availableQuestionCount());
         assertEquals(2, availability.questionCount());
         assertEquals(25, availability.timeLimitMinutes());
+        assertEquals(80, availability.passScore());
     }
 
     @Test
@@ -131,6 +134,8 @@ class ChapterQuizServiceTest {
         ChapterQuizAttemptQuestion incorrect = attemptQuestion(attempt, question(20L, "B"), "A", 2);
         attempt.setQuestions(List.of(correct, incorrect));
         when(attemptRepository.findForUpdate(44L, 7L, 3L)).thenReturn(Optional.of(attempt));
+        when(quizRepository.findByLessonId(19L)).thenReturn(Optional.of(
+                quiz(2, 15, Quiz.QuestionSelectionMode.MANUAL, List.of())));
 
         ChapterQuizDtos.Result result = service.submit(3L, 44L,
                 new ChapterQuizDtos.SubmitRequest(java.util.Map.of(10L, "A", 20L, "A")), authentication);
@@ -143,11 +148,40 @@ class ChapterQuizServiceTest {
         assertTrue(result.answers().get(0).correct());
         assertFalse(result.answers().get(1).correct());
         assertFalse(result.autoSubmitted());
+        assertEquals(80, result.passScore());
+        assertFalse(result.passed());
+        org.mockito.ArgumentCaptor<LearningProgress> progressCaptor =
+                org.mockito.ArgumentCaptor.forClass(LearningProgress.class);
+        verify(progressRepository).save(progressCaptor.capture());
+        assertEquals(LearningProgress.Status.IN_PROGRESS, progressCaptor.getValue().getStatus());
 
         ResponseStatusException secondSubmission = assertThrows(ResponseStatusException.class,
                 () -> service.submit(3L, 44L,
                         new ChapterQuizDtos.SubmitRequest(java.util.Map.of()), authentication));
         assertEquals(409, secondSubmission.getStatusCode().value());
+    }
+
+    @Test
+    void passingTeacherConfiguredScoreCompletesQuizLesson() {
+        ChapterQuizAttempt attempt = attempt(44L, 3L, 7L);
+        attempt.setQuestionCount(1);
+        attempt.setQuestions(List.of(attemptQuestion(attempt, question(10L, "A"), "A", 1)));
+        Quiz quiz = quiz(1, 15, Quiz.QuestionSelectionMode.MANUAL, List.of());
+        quiz.setPassScore(90);
+        when(quizRepository.findByLessonId(19L)).thenReturn(Optional.of(quiz));
+        when(attemptRepository.findForUpdate(44L, 7L, 3L)).thenReturn(Optional.of(attempt));
+        when(progressRepository.findByStudentIdAndLessonId(7L, 19L)).thenReturn(Optional.empty());
+
+        ChapterQuizDtos.Result result = service.submit(
+                3L, 44L, new ChapterQuizDtos.SubmitRequest(java.util.Map.of(10L, "A")), authentication);
+
+        assertTrue(result.passed());
+        assertEquals(90, result.passScore());
+        org.mockito.ArgumentCaptor<LearningProgress> progressCaptor =
+                org.mockito.ArgumentCaptor.forClass(LearningProgress.class);
+        verify(progressRepository).save(progressCaptor.capture());
+        assertEquals(LearningProgress.Status.COMPLETED, progressCaptor.getValue().getStatus());
+        assertEquals(19L, progressCaptor.getValue().getLesson().getId());
     }
 
     @Test
@@ -157,6 +191,8 @@ class ChapterQuizServiceTest {
         ChapterQuizAttemptQuestion savedAnswer = attemptQuestion(attempt, question(10L, "A"), "A", 1);
         ChapterQuizAttemptQuestion blankAnswer = attemptQuestion(attempt, question(20L, "B"), null, 2);
         attempt.setQuestions(List.of(savedAnswer, blankAnswer));
+        when(quizRepository.findByLessonId(19L)).thenReturn(Optional.of(
+                quiz(2, 15, Quiz.QuestionSelectionMode.MANUAL, List.of())));
         when(attemptRepository.findForUpdate(44L, 7L, 3L)).thenReturn(Optional.of(attempt));
 
         ChapterQuizDtos.AttemptStatus status = service.getAttempt(3L, 44L, authentication);
@@ -178,6 +214,11 @@ class ChapterQuizServiceTest {
         attempt.setId(id);
         attempt.setChapter(chapter);
         attempt.setStudent(user);
+        Lesson quizLesson = new Lesson();
+        quizLesson.setId(19L);
+        quizLesson.setChapter(chapter);
+        quizLesson.setLessonType(Lesson.LessonType.QUIZ);
+        attempt.setQuizLesson(quizLesson);
         attempt.setQuestionCount(2);
         attempt.setDurationSeconds(60);
         attempt.setStartedAt(started);

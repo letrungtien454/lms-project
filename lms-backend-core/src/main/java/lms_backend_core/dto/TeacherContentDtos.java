@@ -1,5 +1,6 @@
 package lms_backend_core.dto;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -11,9 +12,14 @@ import jakarta.validation.constraints.Min;
 import lms_backend_core.entity.*;
 
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 public final class TeacherContentDtos {
+
+    private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
 
     private TeacherContentDtos() {
     }
@@ -74,7 +80,7 @@ public final class TeacherContentDtos {
 
     public record QuestionInput(
             @NotBlank String questionText,
-            @NotNull JsonNode optionsJson,
+            @NotNull Object optionsJson,
             @NotBlank @Size(max = 10) String correctOption,
             String explanation,
             Long courseId,
@@ -108,18 +114,53 @@ public final class TeacherContentDtos {
         }
     }
 
-    public record QuestionView(Long id, String questionText, JsonNode optionsJson, String correctOption,
+    public record QuestionView(Long id, String questionText, Object optionsJson, String correctOption,
                                String explanation, Long courseId, Long chapterId, String questionType,
                                String difficulty, String hint, OffsetDateTime createdAt) {
         public static QuestionView from(QuestionBank question) {
-            return new QuestionView(question.getId(), question.getQuestionText(), question.getOptionsJson(),
+            return new QuestionView(question.getId(), question.getQuestionText(), toJsonValue(question.getOptionsJson()),
                     question.getCorrectOption(), question.getExplanation(), question.getCourseId(),
                     question.getChapterId(), question.getQuestionType(), question.getDifficulty(),
                     question.getHint(), question.getCreatedAt());
         }
     }
 
-    public record VideoQuestionView(Long id, Long questionId, String questionText, JsonNode optionsJson,
+    public record VideoQuestionView(Long id, Long questionId, String questionText, Object optionsJson,
                                     String correctOption, Integer videoTimestamp) {
+        public static VideoQuestionView from(Long id, Long questionId, String questionText, JsonNode optionsJson,
+                                             String correctOption, Integer videoTimestamp) {
+            return new VideoQuestionView(id, questionId, questionText, toJsonValue(optionsJson),
+                    correctOption, videoTimestamp);
+        }
+    }
+
+    private static Object toJsonValue(JsonNode node) {
+        if (node == null || node.isNull()) {
+            return null;
+        }
+        if (node.isObject()) {
+            Map<String, Object> values = new LinkedHashMap<>();
+            node.fields().forEachRemaining(entry -> values.put(entry.getKey(), toJsonValue(entry.getValue())));
+            return values;
+        }
+        if (node.isArray()) {
+            List<Object> values = new ArrayList<>(node.size());
+            node.forEach(value -> values.add(toJsonValue(value)));
+            return values;
+        }
+        if (node.isTextual()) {
+            return node.textValue();
+        }
+        if (node.isBoolean()) {
+            return node.booleanValue();
+        }
+        if (node.isNumber()) {
+            return node.numberValue();
+        }
+        return node.asText();
+    }
+
+    public static JsonNode toJsonNode(Object value) {
+        return JSON_MAPPER.valueToTree(value);
     }
 }

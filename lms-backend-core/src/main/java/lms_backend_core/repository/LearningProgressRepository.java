@@ -11,6 +11,8 @@ import java.util.Optional;
 public interface LearningProgressRepository extends JpaRepository<LearningProgress, Long> {
     List<LearningProgress> findAllByStudentIdAndLessonChapterCourseId(Long studentId, Long courseId);
     Optional<LearningProgress> findByStudentIdAndLessonId(Long studentId, Long lessonId);
+    long countByStudentIdAndLessonChapterCourseIdAndStatus(
+            Long studentId, Long courseId, LearningProgress.Status status);
 
     @Query("""
             SELECT lp.student.id AS studentId, lp.lesson.chapter.course.id AS courseId, COUNT(lp.id) AS completedCount

@@ -7,7 +7,8 @@ public class VnpayProperties {
     private String tmnCode = "";
     private String hashSecret = "";
     private String payUrl = "https://sandbox.vnpayment.vn/paymentv2/vpcpay.html";
-    private String returnUrl = "http://localhost:3000/payment/vnpay/return";
+    private String returnUrl = "http://localhost:8080/payment/vnpay/return";
+    private String frontendUrl = "http://localhost:3000";
 
     public String getTmnCode() { return tmnCode; }
     public void setTmnCode(String tmnCode) { this.tmnCode = tmnCode; }
@@ -17,4 +18,6 @@ public class VnpayProperties {
     public void setPayUrl(String payUrl) { this.payUrl = payUrl; }
     public String getReturnUrl() { return returnUrl; }
     public void setReturnUrl(String returnUrl) { this.returnUrl = returnUrl; }
+    public String getFrontendUrl() { return frontendUrl; }
+    public void setFrontendUrl(String frontendUrl) { this.frontendUrl = frontendUrl; }
 }

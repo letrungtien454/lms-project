@@ -30,6 +30,7 @@ public class ChapterQuizService {
     private final ChapterQuizQuestionRepository questionRepository;
     private final ChapterQuizAttemptRepository attemptRepository;
     private final QuizRepository quizRepository;
+    private final LearningProgressRepository progressRepository;
 
     @Transactional(readOnly = true)
     public ChapterQuizDtos.Availability availability(
@@ -43,7 +44,8 @@ public class ChapterQuizService {
                 chapterId,
                 available.size(),
                 quiz.getQuestionCount() == null ? 10 : quiz.getQuestionCount(),
-                quiz.getTimeLimitMinutes() == null ? 15 : quiz.getTimeLimitMinutes());
+                quiz.getTimeLimitMinutes() == null ? 15 : quiz.getTimeLimitMinutes(),
+                getPassScore(quiz));
     }
 
     @Transactional
@@ -250,6 +252,8 @@ public class ChapterQuizService {
         attempt.setScore(BigDecimal.valueOf(correct * 100.0 / attempt.getQuestionCount())
                 .setScale(2, RoundingMode.HALF_UP));
         attempt.setElapsedSeconds(elapsed);
+        Quiz quiz = getQuizForAttempt(attempt);
+        updateLessonProgress(attempt, attempt.getScore().doubleValue() >= getPassScore(quiz));
     }
 
     private ChapterQuizDtos.StartedAttempt toStartedAttempt(ChapterQuizAttempt attempt) {
@@ -275,11 +279,42 @@ public class ChapterQuizService {
                         item.getQuestion().getExplanation(),
                         Boolean.TRUE.equals(item.getIsCorrect())))
                 .toList();
+        int passScore = getPassScore(getQuizForAttempt(attempt));
         return new ChapterQuizDtos.Result(
                 attempt.getId(), attempt.getChapter().getId(), attempt.getQuestionCount(),
                 attempt.getCorrectCount(), attempt.getIncorrectCount(), attempt.getScore(),
                 attempt.getElapsedSeconds(), attempt.getDurationSeconds() / 60, attempt.isAutoSubmitted(), attempt.getStartedAt(),
-                attempt.getDeadlineAt(), attempt.getSubmittedAt(), answers);
+                attempt.getDeadlineAt(), attempt.getSubmittedAt(), answers, passScore,
+                attempt.getScore().doubleValue() >= passScore);
+    }
+
+    private Quiz getQuizForAttempt(ChapterQuizAttempt attempt) {
+        Long lessonId = attempt.getQuizLesson().getId();
+        return quizRepository.findByLessonId(lessonId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Quiz configuration not found."));
+    }
+
+    private int getPassScore(Quiz quiz) {
+        return quiz.getPassScore() == null ? 80 : quiz.getPassScore();
+    }
+
+    private void updateLessonProgress(ChapterQuizAttempt attempt, boolean passed) {
+        LearningProgress progress = progressRepository
+                .findByStudentIdAndLessonId(attempt.getStudent().getId(), attempt.getQuizLesson().getId())
+                .orElseGet(() -> {
+                    LearningProgress created = new LearningProgress();
+                    created.setStudent(attempt.getStudent());
+                    created.setLesson(attempt.getQuizLesson());
+                    created.setLastPlaybackTime(0);
+                    return created;
+                });
+        if (passed) {
+            progress.setStatus(LearningProgress.Status.COMPLETED);
+        } else if (progress.getStatus() != LearningProgress.Status.COMPLETED) {
+            progress.setStatus(LearningProgress.Status.IN_PROGRESS);
+        }
+        progressRepository.save(progress);
     }
 
     private List<ChapterQuizDtos.Option> toOptions(JsonNode options) {

@@ -227,7 +227,7 @@ export default function AdminModerationPage() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2.5">
-              <div className="relative flex-1 min-w-[200px] max-w-xs">
+              <div className="relative flex-1 min-w-50 max-w-xs">
                 <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
                 <input
                   type="text"
@@ -263,7 +263,7 @@ export default function AdminModerationPage() {
 
           {/* TAB 1: DANH SÁCH ĐÁNH GIÁ (REVIEWS) */}
           {activeTab === "REVIEWS" && (
-            <div className="space-y-3 min-h-[300px]">
+            <div className="space-y-3 min-h-75">
               {loading ? (
                 <div className="py-12 text-center text-slate-400">
                   <Loader2 className="size-6 animate-spin mx-auto mb-2 text-blue-600" />
@@ -285,7 +285,7 @@ export default function AdminModerationPage() {
                     >
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div className="flex items-center gap-3">
-                          <span className="flex size-9 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-xs font-bold text-white shrink-0 shadow-2xs">
+                          <span className="flex size-9 items-center justify-center rounded-full bg-linear-to-br from-blue-500 to-indigo-600 text-xs font-bold text-white shrink-0 shadow-2xs">
                             {initial}
                           </span>
                           <div>
@@ -336,7 +336,7 @@ export default function AdminModerationPage() {
 
           {/* TAB 2: DANH SÁCH BÌNH LUẬN (COMMENTS) */}
           {activeTab === "COMMENTS" && (
-            <div className="space-y-3 min-h-[300px]">
+            <div className="space-y-3 min-h-75">
               {loading ? (
                 <div className="py-12 text-center text-slate-400">
                   <Loader2 className="size-6 animate-spin mx-auto mb-2 text-blue-600" />
@@ -358,7 +358,7 @@ export default function AdminModerationPage() {
                     >
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div className="flex items-center gap-3">
-                          <span className="flex size-9 items-center justify-center rounded-full bg-gradient-to-br from-purple-500 to-indigo-600 text-xs font-bold text-white shrink-0 shadow-2xs">
+                          <span className="flex size-9 items-center justify-center rounded-full bg-linear-to-br from-purple-500 to-indigo-600 text-xs font-bold text-white shrink-0 shadow-2xs">
                             {initial}
                           </span>
                           <div>

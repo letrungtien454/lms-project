@@ -13,14 +13,19 @@ import {
   ChevronLeft,
   ChevronRight,
   Loader2,
+  Pencil,
+  Trash2,
+  X,
 } from "lucide-react";
-import { apiRequest } from "@/lib/api";
+import { API_BASE_URL, apiRequest } from "@/lib/api";
 
 type Enrollment = {
   id: number;
   studentId: number;
   studentName: string;
   studentEmail: string;
+  avatarUrl?: string | null;
+  courseId: number;
   courseTitle: string;
   amountPaid: number;
   enrolledAt: string;
@@ -28,9 +33,22 @@ type Enrollment = {
   totalLessons: number;
   progressPercent: number;
 };
+type Course = { id: number; title: string };
+
+function StudentAvatar({ avatarUrl, name }: { avatarUrl?: string | null; name: string }) {
+  const [failed, setFailed] = useState(false);
+  const initials = name.trim().split(/\s+/).at(-1)?.charAt(0).toUpperCase() ?? "H";
+  const source = avatarUrl
+    ? avatarUrl.startsWith("http") ? avatarUrl : `${API_BASE_URL}${avatarUrl.startsWith("/") ? "" : "/"}${avatarUrl}`
+    : null;
+  return source && !failed
+    ? <img src={source} alt="" className="size-8 rounded-full object-cover" onError={() => setFailed(true)} />
+    : <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-blue-100/70 text-xs font-bold text-blue-700">{initials}</span>;
+}
 
 export default function TeacherStudentsPage() {
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
+  const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -38,25 +56,101 @@ export default function TeacherStudentsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCourse, setSelectedCourse] = useState("ALL");
   const [selectedStatus, setSelectedStatus] = useState("ALL");
+  const [showEnrollmentForm, setShowEnrollmentForm] = useState(false);
+  const [editingEnrollment, setEditingEnrollment] = useState<Enrollment | null>(null);
+  const [studentEmail, setStudentEmail] = useState("");
+  const [courseId, setCourseId] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [activeMenuId, setActiveMenuId] = useState<number | null>(null);
 
-  // Pagination States
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 5;
 
-  useEffect(() => {
+  async function loadData() {
     setLoading(true);
-    apiRequest<Enrollment[]>("/api/teacher/students")
-      .then((data) => {
-        setEnrollments(data || []);
-        setError("");
-      })
-      .catch((cause: unknown) => {
-        setError(
-          cause instanceof Error ? cause.message : "Không tải được danh sách học viên."
-        );
-      })
-      .finally(() => setLoading(false));
-  }, []);
+    try {
+      const [students, teacherCourses] = await Promise.all([
+        apiRequest<Enrollment[]>("/api/teacher/students"),
+        apiRequest<Course[]>("/api/teacher/courses"),
+      ]);
+      setEnrollments(students);
+      setCourses(teacherCourses);
+      setError("");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Không tải được danh sách học viên.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { void loadData(); }, []);
+
+  function downloadSpreadsheet() {
+    const headers = ["Họ tên", "Email", "Khóa học", "Trạng thái", "Tiến độ", "Ngày đăng ký"];
+    const rows = filteredEnrollments.map((item) => [
+      item.studentName, item.studentEmail, item.courseTitle,
+      item.progressPercent === 100 ? "Đã hoàn thành" : "Đang học",
+      `${item.progressPercent}%`, new Date(item.enrolledAt).toLocaleDateString("vi-VN"),
+    ]);
+    const csvEscape = (value: string) => `"${value.replace(/"/g, '""')}"`;
+    const csv = `\uFEFF${[headers, ...rows].map((row) => row.map((value) => {
+      const safeValue = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+      return csvEscape(safeValue);
+    }).join(",")).join("\r\n")}`;
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "danh-sach-hoc-vien.csv";
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function openEnrollmentForm(enrollment?: Enrollment) {
+    setEditingEnrollment(enrollment ?? null);
+    setStudentEmail(enrollment?.studentEmail ?? "");
+    setCourseId(enrollment ? String(enrollment.courseId) : (courses[0] ? String(courses[0].id) : ""));
+    setError("");
+    setNotice("");
+    setShowEnrollmentForm(true);
+    setActiveMenuId(null);
+  }
+
+  async function saveEnrollment(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    setNotice("");
+    try {
+      await apiRequest(
+        editingEnrollment ? `/api/teacher/students/${editingEnrollment.id}` : "/api/teacher/students",
+        {
+          method: editingEnrollment ? "PUT" : "POST",
+          body: JSON.stringify({ studentEmail, courseId: Number(courseId) }),
+        },
+      );
+      setShowEnrollmentForm(false);
+      setNotice(editingEnrollment ? "Đã cập nhật đăng ký học viên." : "Đã thêm học viên vào khóa học.");
+      await loadData();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Không lưu được thông tin đăng ký.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function removeEnrollment(enrollment: Enrollment) {
+    if (!window.confirm(`Xóa lượt đăng ký của ${enrollment.studentName} khỏi khóa học "${enrollment.courseTitle}"?`)) return;
+    setActiveMenuId(null);
+    setError("");
+    try {
+      await apiRequest(`/api/teacher/students/${enrollment.id}`, { method: "DELETE" });
+      setNotice("Đã xóa lượt đăng ký học viên.");
+      await loadData();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Không xóa được lượt đăng ký.");
+    }
+  }
 
   // Lấy danh sách khóa học duy nhất để fill vào bộ lọc
   const courseOptions = useMemo(() => {
@@ -129,12 +223,14 @@ export default function TeacherStudentsPage() {
           <div className="flex items-center gap-2.5">
             <button
               type="button"
+              onClick={downloadSpreadsheet}
               className="flex items-center gap-2 rounded-xl border border-blue-200/80 bg-white px-3.5 py-2 text-xs font-bold text-blue-600 shadow-2xs hover:bg-blue-50 transition cursor-pointer"
             >
               <Download className="size-4" /> Xuất Excel
             </button>
             <button
               type="button"
+              onClick={() => openEnrollmentForm()}
               className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white shadow-md shadow-blue-500/20 hover:bg-blue-700 transition cursor-pointer"
             >
               <UserPlus className="size-4" /> Thêm học viên
@@ -147,6 +243,7 @@ export default function TeacherStudentsPage() {
             {error}
           </p>
         )}
+        {notice && <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs text-emerald-800">{notice}</p>}
 
         {/* --- 2. THANH SEARCH & BỘ LỌC --- */}
         <div className="flex flex-wrap items-center gap-3">
@@ -282,7 +379,6 @@ export default function TeacherStudentsPage() {
                   paginatedEnrollments.map((item, index) => {
                     const stt = (currentPage - 1) * pageSize + index + 1;
                     const isCompleted = item.progressPercent === 100;
-                    const firstChar = item.studentName.trim().charAt(0).toUpperCase();
 
                     return (
                       <tr key={item.id} className="group hover:bg-slate-50/60 transition">
@@ -292,9 +388,7 @@ export default function TeacherStudentsPage() {
 
                         <td className="py-3.5 font-bold text-slate-800">
                           <div className="flex items-center gap-3">
-                            <span className="flex size-8 items-center justify-center rounded-full bg-blue-100/70 text-xs font-bold text-blue-700 shrink-0">
-                              {firstChar}
-                            </span>
+                            <StudentAvatar avatarUrl={item.avatarUrl} name={item.studentName} />
                             <span>{item.studentName}</span>
                           </div>
                         </td>
@@ -328,10 +422,16 @@ export default function TeacherStudentsPage() {
                         <td className="py-3.5 text-right pr-3">
                           <button
                             type="button"
+                            aria-label={`Thao tác với ${item.studentName}`}
+                            onClick={() => setActiveMenuId(activeMenuId === item.id ? null : item.id)}
                             className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition cursor-pointer"
                           >
                             <MoreHorizontal className="size-4" />
                           </button>
+                          {activeMenuId === item.id && <div className="absolute right-3 z-20 mt-1 w-40 rounded-xl border bg-white p-1 shadow-lg">
+                            <button type="button" onClick={() => openEnrollmentForm(item)} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left hover:bg-slate-50"><Pencil className="size-4" /> Sửa khóa học</button>
+                            <button type="button" onClick={() => void removeEnrollment(item)} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-rose-600 hover:bg-rose-50"><Trash2 className="size-4" /> Xóa đăng ký</button>
+                          </div>}
                         </td>
                       </tr>
                     );
@@ -385,6 +485,15 @@ export default function TeacherStudentsPage() {
         </div>
 
       </div>
+      {showEnrollmentForm && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
+        <form onSubmit={saveEnrollment} className="w-full max-w-lg space-y-4 rounded-2xl bg-white p-6 shadow-xl">
+          <div className="flex items-center justify-between"><h2 className="text-lg font-bold text-[#17305f]">{editingEnrollment ? "Sửa đăng ký học viên" : "Thêm học viên vào khóa học"}</h2><button type="button" onClick={() => setShowEnrollmentForm(false)} aria-label="Đóng"><X className="size-5" /></button></div>
+          <label className="block space-y-1"><span className="font-semibold">Email học viên đã có tài khoản</span><input required type="email" value={studentEmail} disabled={Boolean(editingEnrollment)} onChange={(event) => setStudentEmail(event.target.value)} className="w-full rounded-xl border px-3 py-2 disabled:bg-slate-100" placeholder="hocvien@example.com" /></label>
+          <label className="block space-y-1"><span className="font-semibold">Khóa học của bạn</span><select required value={courseId} onChange={(event) => setCourseId(event.target.value)} className="w-full rounded-xl border px-3 py-2"><option value="" disabled>Chọn khóa học</option>{courses.map((course) => <option key={course.id} value={course.id}>{course.title}</option>)}</select></label>
+          {!editingEnrollment && <p className="text-xs text-slate-500">Học viên cần có tài khoản đang hoạt động. Việc này không tạo tài khoản mới.</p>}
+          <div className="flex justify-end gap-2"><button type="button" onClick={() => setShowEnrollmentForm(false)} className="rounded-xl border px-4 py-2">Hủy</button><button type="submit" disabled={saving || !courses.length} className="rounded-xl bg-blue-600 px-4 py-2 font-semibold text-white disabled:opacity-50">{saving ? "Đang lưu..." : "Lưu"}</button></div>
+        </form>
+      </div>}
     </main>
   );
 }

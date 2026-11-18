@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import {
   FileText,
   Search,
@@ -15,6 +15,7 @@ import {
   Clock,
   RefreshCw,
 } from "lucide-react";
+import { apiRequest } from "@/lib/api";
 
 type LogEntry = {
   id: number;
@@ -27,65 +28,41 @@ type LogEntry = {
   createdAt: string;
 };
 
+const actorRoleLabels: Record<LogEntry["actorRole"], string> = {
+  ADMIN: "Quản trị viên",
+  TEACHER: "Giảng viên",
+  STUDENT: "Học viên",
+  SYSTEM: "Hệ thống",
+};
+
+const levelLabels: Record<LogEntry["level"], string> = {
+  INFO: "Thông tin",
+  WARNING: "Cảnh báo",
+  ERROR: "Lỗi",
+};
+
 export default function AdminLogsPage() {
   const [query, setQuery] = useState("");
   const [levelFilter, setLevelFilter] = useState("ALL");
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 8;
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  // Dữ liệu mẫu chuẩn hóa để hiển thị giao diện Nhật ký thực tế
-  const [logs] = useState<LogEntry[]>([
-    {
-      id: 1,
-      actorName: "Nguyễn Văn Nam",
-      actorRole: "ADMIN",
-      action: "Khóa tài khoản người dùng",
-      target: "User #102 (tran.a@example.com)",
-      ipAddress: "113.161.42.12",
-      level: "WARNING",
-      createdAt: "2026-10-24T18:30:00Z",
-    },
-    {
-      id: 2,
-      actorName: "Phạm Quốc Bảo",
-      actorRole: "TEACHER",
-      action: "Tạo khóa học mới",
-      target: "Khóa học: React & Next.js Pro",
-      ipAddress: "14.232.110.85",
-      level: "INFO",
-      createdAt: "2026-10-24T16:15:00Z",
-    },
-    {
-      id: 3,
-      actorName: "Hệ thống AI",
-      actorRole: "SYSTEM",
-      action: "Tạo vector nhúng khóa học",
-      target: "CourseDocumentVector #88",
-      ipAddress: "127.0.0.1",
-      level: "INFO",
-      createdAt: "2026-10-24T14:00:00Z",
-    },
-    {
-      id: 4,
-      actorName: "Trần Thị Bình",
-      actorRole: "ADMIN",
-      action: "Xóa đánh giá vi phạm",
-      target: "Review #45 (Học viên chửi thề)",
-      ipAddress: "113.161.42.12",
-      level: "ERROR",
-      createdAt: "2026-10-24T11:20:00Z",
-    },
-    {
-      id: 5,
-      actorName: "Lê Văn Đạt",
-      actorRole: "TEACHER",
-      action: "Cập nhật bài học",
-      target: "Lesson #301 - Rest API với Spring Boot",
-      ipAddress: "27.72.95.14",
-      level: "INFO",
-      createdAt: "2026-10-23T20:10:00Z",
-    },
-  ]);
+  const loadLogs = useCallback(async () => {
+    setLoading(true);
+    try {
+      setLogs(await apiRequest<LogEntry[]>("/api/admin/logs"));
+      setError("");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Không tải được nhật ký hệ thống.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void loadLogs(); }, [loadLogs]);
 
   // Logic lọc và tìm kiếm Nhật ký
   const filteredLogs = useMemo(() => {
@@ -125,11 +102,13 @@ export default function AdminLogsPage() {
 
           <button
             type="button"
+            onClick={() => void loadLogs()}
             className="flex items-center gap-2 rounded-2xl border border-slate-200/80 bg-white px-4 py-2.5 text-xs font-bold text-slate-600 shadow-2xs hover:bg-slate-50 transition cursor-pointer"
           >
             <RefreshCw className="size-3.5" /> Làm mới
           </button>
         </div>
+        {error && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs text-rose-800">{error}</p>}
 
         {/* --- 2. THẺ THỐNG KÊ LOGS --- */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -172,7 +151,7 @@ export default function AdminLogsPage() {
         <div className="rounded-3xl bg-white p-5 shadow-[0_2px_16px_rgba(0,0,0,0.03)] border border-slate-100 space-y-4">
           
           <div className="flex flex-wrap items-center gap-3">
-            <div className="relative flex-1 min-w-[240px] max-w-sm">
+            <div className="relative flex-1 min-w-60 max-w-sm">
               <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
@@ -201,8 +180,8 @@ export default function AdminLogsPage() {
             </select>
           </div>
 
-          <div className="overflow-x-auto min-h-[350px]">
-            <table className="w-full min-w-[800px] text-left text-xs">
+          <div className="overflow-x-auto min-h-87.5">
+            <table className="w-full min-w-200 text-left text-xs">
               <thead>
                 <tr className="border-b border-slate-100 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
                   <th className="pb-3 pl-3 w-12 text-center">#</th>
@@ -215,10 +194,12 @@ export default function AdminLogsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {paginatedLogs.length === 0 ? (
+                {loading ? (
+                  <tr><td colSpan={7} className="py-12 text-center text-slate-400">Đang tải nhật ký...</td></tr>
+                ) : paginatedLogs.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="py-12 text-center text-slate-400 italic">
-                      Không tìm thấy nhật ký phù hợp.
+                      {query || levelFilter !== "ALL" ? "Không tìm thấy nhật ký phù hợp." : "Chưa có nhật ký hoạt động trong cơ sở dữ liệu."}
                     </td>
                   </tr>
                 ) : (
@@ -238,7 +219,7 @@ export default function AdminLogsPage() {
                             </span>
                             <div>
                               <p className="font-bold text-slate-800">{log.actorName}</p>
-                              <span className="text-[9px] text-slate-400 font-semibold">{log.actorRole}</span>
+                              <span className="text-[9px] text-slate-400 font-semibold">{actorRoleLabels[log.actorRole]}</span>
                             </div>
                           </div>
                         </td>
@@ -258,17 +239,17 @@ export default function AdminLogsPage() {
                         <td>
                           {log.level === "INFO" && (
                             <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-0.5 text-[10px] font-bold text-blue-600">
-                              <Info className="size-3" /> Info
+                              <Info className="size-3" /> {levelLabels.INFO}
                             </span>
                           )}
                           {log.level === "WARNING" && (
                             <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-0.5 text-[10px] font-bold text-amber-600">
-                              <AlertTriangle className="size-3" /> Warning
+                              <AlertTriangle className="size-3" /> {levelLabels.WARNING}
                             </span>
                           )}
                           {log.level === "ERROR" && (
                             <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2.5 py-0.5 text-[10px] font-bold text-rose-600">
-                              <ShieldAlert className="size-3" /> Error
+                              <ShieldAlert className="size-3" /> {levelLabels.ERROR}
                             </span>
                           )}
                         </td>

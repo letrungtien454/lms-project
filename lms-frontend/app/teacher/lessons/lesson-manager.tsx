@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import {
   BookOpen,
   ChevronDown,
@@ -17,6 +18,7 @@ import {
   Upload,
   Video,
   X,
+  MousePointerClick,
 } from "lucide-react";
 import { API_BASE_URL, apiRequest } from "@/lib/api";
 
@@ -54,8 +56,8 @@ type QuizConfig = {
   title: string;
   timeLimitMinutes: number;
   passScore: number;
-  questionCount: number; // Số câu hỏi rút ngẫu nhiên
-  selectionMode: "RANDOM" | "MANUAL"; // Chế độ: Rút ngẫu nhiên hoặc Chọn thủ công
+  questionCount: number;
+  selectionMode: "RANDOM" | "MANUAL";
   questionIds: number[];
 };
 
@@ -123,7 +125,7 @@ function buildVideoQuestionPayload(drafts: VideoQuestionDraft[]) {
 
 export default function LessonManager() {
   const [courses, setCourses] = useState<Course[]>([]);
-  const [courseId, setCourseId] = useState("");
+  const [courseId, setCourseId] = useState(""); // Rỗng mặc định (Chưa chọn khóa học)
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [selectedLessonId, setSelectedLessonId] = useState<number | null>(null);
   const [expandedChapters, setExpandedChapters] = useState<number[]>([]);
@@ -206,6 +208,7 @@ export default function LessonManager() {
     }
   }, []);
 
+  // Lấy danh sách khóa học - CHỈ ĐẶT courseId NẾU CÓ TRÊN URL, NẾU KHÔNG THÌ ĐỂ RỖNG
   useEffect(() => {
     let active = true;
     apiRequest<Course[]>("/api/teacher/courses")
@@ -214,7 +217,8 @@ export default function LessonManager() {
         setCourses(data);
         const requestedId = new URLSearchParams(window.location.search).get("courseId");
         const requestedCourse = data.find((course) => String(course.id) === requestedId);
-        setCourseId(String(requestedCourse?.id ?? data[0]?.id ?? ""));
+        // Nếu có courseId chỉ định từ URL thì mới tự động chọn, không thì để rỗng ""
+        setCourseId(requestedCourse ? String(requestedCourse.id) : "");
       })
       .catch((cause: unknown) => {
         if (active) setError(cause instanceof Error ? cause.message : "Không tải được danh sách khóa học.");
@@ -228,7 +232,11 @@ export default function LessonManager() {
   }, []);
 
   useEffect(() => {
-    void loadCurriculum(courseId);
+    if (courseId) {
+      void loadCurriculum(courseId);
+    } else {
+      setChapters([]);
+    }
   }, [courseId, loadCurriculum]);
 
   useEffect(() => {
@@ -614,9 +622,9 @@ export default function LessonManager() {
       <div className="mx-auto max-w-7xl space-y-5">
         <header className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
           <div>
-            <h1 className="text-xl font-bold text-[#17305f]">Chương trình học</h1>
-            <p className="mt-1 text-xs text-slate-500">
-              Sắp xếp chương, bài học, tài liệu và nội dung quiz trong khóa học.
+            <h1 className="text-2xl font-bold text-[#17305f]">Chương trình học</h1>
+            <p className="mt-1 text-sm text-slate-500">
+              Chọn khóa học cần quản lý, sau đó thêm/sửa chương, bài học và tài liệu.
             </p>
           </div>
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
@@ -629,57 +637,75 @@ export default function LessonManager() {
                 selectedLessonIdRef.current = null;
                 setSelectedLessonId(null);
                 setError("");
+                setNotice("");
               }}
-              className="h-10 min-w-0 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-700 outline-none focus:border-blue-400 sm:w-64 sm:flex-none"
+              className="h-10 min-w-0 flex-1 rounded-xl border border-slate-300 bg-white px-3.5 text-sm font-semibold text-slate-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 sm:w-72 sm:flex-none cursor-pointer shadow-2xs"
             >
-              {courses.length === 0 && <option value="">Chưa có khóa học</option>}
+              <option value="">-- Chọn khóa học cần sửa --</option>
               {courses.map((course) => (
                 <option key={course.id} value={course.id}>
                   {course.title}
                 </option>
               ))}
             </select>
-            <a
+            <Link
               href="/teacher/courses"
-              className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 px-3 font-semibold text-slate-600 transition hover:bg-slate-50"
+              className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 px-3.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
             >
-              <BookOpen size={15} /> Khóa học
-            </a>
+              <BookOpen size={16} /> Quản lý Khóa học
+            </Link>
           </div>
         </header>
 
         {error && (
-          <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-800">
+          <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
             {error}
           </p>
         )}
         {notice && (
-          <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs text-emerald-800">
+          <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
             {notice}
           </p>
         )}
 
+        {/* 1. MÀN HÌNH CHỜ CHỌN KHÓA HỌC KHI MỚI VÀO TRANG (EMPTY STATE) */}
+        {!courseId && !coursesLoading && (
+          <section className="rounded-2xl border border-dashed border-slate-300 bg-white p-12 text-center shadow-2xs">
+            <div className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
+              <MousePointerClick size={28} />
+            </div>
+            <h2 className="mt-4 text-lg font-bold text-[#17305f]">Vui lòng chọn khóa học</h2>
+            <p className="mx-auto mt-2 text-sm leading-relaxed text-slate-500 max-w-none sm:whitespace-nowrap">
+              Hãy chọn khóa học ở góc trên bên phải để tải danh sách chương và bài học.
+            </p>
+          </section>
+        )}
+
+        {/* 2. HIỂN THỊ NẾU CHƯA CÓ KHÓA HỌC NÀO TRONG TÀI KHOẢN GIẢNG VIÊN */}
         {courses.length === 0 && !coursesLoading ? (
           <section className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center">
-            <BookOpen className="mx-auto size-9 text-slate-300" />
-            <h2 className="mt-3 font-bold text-[#17305f]">Tạo khóa học để bắt đầu</h2>
-            <p className="mt-1 text-xs text-slate-500">Chương và bài học sẽ được gắn vào khóa học bạn chọn.</p>
-            <a
+            <BookOpen className="mx-auto size-10 text-slate-300" />
+            <h2 className="mt-3 text-base font-bold text-[#17305f]">Chưa có khóa học nào</h2>
+            <p className="mt-1 text-sm text-slate-500">Tạo khóa học trước để có thể xây dựng chương trình học.</p>
+            <Link
               href="/teacher/courses"
-              className="mt-4 inline-flex rounded-xl bg-blue-600 px-4 py-2.5 font-semibold text-white"
+              className="mt-4 inline-flex rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
             >
-              Mở quản lý khóa học
-            </a>
+              Tạo khóa học ngay
+            </Link>
           </section>
-        ) : (
+        ) : null}
+
+        {/* 3. MÀN HÌNH QUẢN LÝ NỘI DUNG KHI ĐÃ CHỌN KHÓA HỌC */}
+        {courseId && (
           <div className="w-full">
             <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
-              <div className="flex items-center justify-between border-b border-slate-100 px-4 py-4">
+              <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
                 <div>
-                  <h2 className="flex items-center gap-2 font-bold text-[#17305f]">
-                    <Layers size={16} /> Nội dung khóa học
+                  <h2 className="flex items-center gap-2 text-base font-bold text-[#17305f]">
+                    <Layers size={18} /> Nội dung khóa học: <span className="text-blue-600">{courses.find((c) => String(c.id) === courseId)?.title}</span>
                   </h2>
-                  <p className="mt-1 text-[10px] text-slate-500">
+                  <p className="mt-1 text-xs text-slate-500">
                     {chapters.length} chương · {lessonCount} bài học
                   </p>
                 </div>
@@ -691,12 +717,12 @@ export default function LessonManager() {
                     setNotice("");
                     document.getElementById("new-chapter-title")?.focus();
                   }}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-blue-600 px-2.5 font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+                  className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-blue-600 px-3.5 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
                 >
-                  <Plus size={14} /> Thêm chương
+                  <Plus size={15} /> Thêm chương
                 </button>
               </div>
-              <form onSubmit={createChapter} className="flex gap-2 border-b border-slate-100 bg-slate-50/70 p-3">
+              <form onSubmit={createChapter} className="flex gap-2 border-b border-slate-100 bg-slate-50/70 p-4">
                 <input
                   id="new-chapter-title"
                   required
@@ -704,32 +730,32 @@ export default function LessonManager() {
                   value={newChapterTitle}
                   onChange={(event) => setNewChapterTitle(event.target.value)}
                   placeholder="Tên chương mới"
-                  className="h-9 min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 text-xs outline-none focus:border-blue-400"
+                  className="h-10 min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3.5 text-sm outline-none focus:border-blue-400"
                 />
                 <button
                   disabled={busy || !courseId}
-                  className="h-9 rounded-lg bg-slate-800 px-3 font-semibold text-white disabled:opacity-50 cursor-pointer"
+                  className="h-10 rounded-xl bg-slate-800 px-4 text-xs font-semibold text-white disabled:opacity-50 cursor-pointer"
                 >
-                  {busy ? <LoaderCircle size={15} className="animate-spin" /> : "Tạo"}
+                  {busy ? <LoaderCircle size={16} className="animate-spin" /> : "Tạo"}
                 </button>
               </form>
 
-              {contentLoading || coursesLoading ? (
-                <div className="flex items-center justify-center gap-2 p-10 text-xs text-slate-500">
-                  <LoaderCircle size={16} className="animate-spin" /> Đang tải nội dung...
+              {contentLoading ? (
+                <div className="flex items-center justify-center gap-2 p-10 text-sm text-slate-500">
+                  <LoaderCircle size={18} className="animate-spin" /> Đang tải nội dung khóa học...
                 </div>
               ) : chapters.length === 0 ? (
-                <p className="p-8 text-center text-xs text-slate-500">
+                <p className="p-8 text-center text-sm text-slate-500">
                   Khóa học này chưa có chương. Thêm chương ở phía trên.
                 </p>
               ) : (
-                <div className="space-y-3 p-3">
+                <div className="space-y-3 p-4">
                   {chapters.map((chapter) => {
                     const expanded = expandedChapters.includes(chapter.id);
                     const editing = editingChapterId === chapter.id;
                     return (
                       <article key={chapter.id} className="overflow-hidden rounded-xl border border-slate-200">
-                        <div className="flex items-center gap-2 bg-slate-50 px-3 py-2.5">
+                        <div className="flex items-center gap-2 bg-slate-50 px-4 py-3">
                           <button
                             type="button"
                             aria-label={expanded ? "Thu gọn chương" : "Mở chương"}
@@ -740,14 +766,14 @@ export default function LessonManager() {
                             }
                             className="text-slate-500 cursor-pointer"
                           >
-                            {expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                            {expanded ? <ChevronDown size={17} /> : <ChevronRight size={17} />}
                           </button>
                           {editing ? (
-                            <div className="grid min-w-0 flex-1 grid-cols-[1fr_54px_auto_auto] gap-1.5">
+                            <div className="grid min-w-0 flex-1 grid-cols-[1fr_60px_auto_auto] gap-2">
                               <input
                                 value={editingChapterTitle}
                                 onChange={(event) => setEditingChapterTitle(event.target.value)}
-                                className="min-w-0 rounded-md border px-2 py-1 text-xs"
+                                className="min-w-0 rounded-lg border px-3 py-1.5 text-sm"
                                 aria-label="Tên chương"
                               />
                               <input
@@ -755,23 +781,23 @@ export default function LessonManager() {
                                 min="0"
                                 value={editingChapterOrder}
                                 onChange={(event) => setEditingChapterOrder(event.target.value)}
-                                className="w-full rounded-md border px-1 py-1 text-xs"
+                                className="w-full rounded-lg border px-2 py-1.5 text-sm"
                                 aria-label="Thứ tự chương"
                               />
                               <button
                                 type="button"
                                 onClick={() => void saveChapter(chapter)}
                                 disabled={busy}
-                                className="rounded-md bg-blue-600 px-2 text-white cursor-pointer"
+                                className="rounded-lg bg-blue-600 px-2.5 text-white cursor-pointer"
                               >
-                                <Save size={13} />
+                                <Save size={15} />
                               </button>
                               <button
                                 type="button"
                                 onClick={() => setEditingChapterId(null)}
-                                className="rounded-md border px-2 text-slate-500 cursor-pointer"
+                                className="rounded-lg border px-2.5 text-slate-500 cursor-pointer"
                               >
-                                <X size={13} />
+                                <X size={15} />
                               </button>
                             </div>
                           ) : (
@@ -785,10 +811,10 @@ export default function LessonManager() {
                                 }
                                 className="min-w-0 flex-1 text-left cursor-pointer"
                               >
-                                <span className="block truncate text-xs font-bold text-slate-800">
+                                <span className="block truncate text-sm font-bold text-slate-800">
                                   {chapter.orderIndex}. {chapter.title}
                                 </span>
-                                <span className="text-[10px] text-slate-500">{chapter.lessons.length} bài học</span>
+                                <span className="text-xs text-slate-500">{chapter.lessons.length} bài học</span>
                               </button>
                               <button
                                 type="button"
@@ -798,17 +824,17 @@ export default function LessonManager() {
                                   setEditingChapterTitle(chapter.title);
                                   setEditingChapterOrder(String(chapter.orderIndex));
                                 }}
-                                className="rounded-md p-1.5 text-slate-400 hover:bg-white hover:text-blue-600 cursor-pointer"
+                                className="rounded-lg p-1.5 text-slate-400 hover:bg-white hover:text-blue-600 cursor-pointer"
                               >
-                                <Pencil size={13} />
+                                <Pencil size={15} />
                               </button>
                               <button
                                 type="button"
                                 title="Xóa chương"
                                 onClick={() => void deleteChapter(chapter)}
-                                className="rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600 cursor-pointer"
+                                className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600 cursor-pointer"
                               >
-                                <Trash2 size={13} />
+                                <Trash2 size={15} />
                               </button>
                             </>
                           )}
@@ -820,19 +846,19 @@ export default function LessonManager() {
                               return (
                                 <div
                                   key={lesson.id}
-                                  className="flex items-center gap-2 px-3 py-2 bg-white hover:bg-slate-50 transition cursor-pointer"
+                                  className="flex items-center gap-3 px-4 py-2.5 bg-white hover:bg-slate-50 transition cursor-pointer"
                                 >
                                   <button
                                     type="button"
                                     onClick={() => selectLesson(lesson)}
-                                    className="flex min-w-0 flex-1 items-center gap-2 text-left cursor-pointer"
+                                    className="flex min-w-0 flex-1 items-center gap-2.5 text-left cursor-pointer"
                                   >
-                                    <Icon size={14} className="shrink-0 text-slate-400" />
-                                    <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-slate-700">
+                                    <Icon size={16} className="shrink-0 text-slate-400" />
+                                    <span className="min-w-0 flex-1 truncate text-xs font-medium text-slate-700">
                                       {lesson.orderIndex}. {lesson.title}
                                     </span>
                                     {lesson.isFreePreview && (
-                                      <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-700">
+                                      <span className="rounded bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
                                         Học thử
                                       </span>
                                     )}
@@ -844,7 +870,7 @@ export default function LessonManager() {
                                     onClick={() => selectLesson(lesson)}
                                     className="rounded p-1 text-slate-400 hover:bg-blue-50 hover:text-blue-600 cursor-pointer"
                                   >
-                                    <Pencil size={13} />
+                                    <Pencil size={15} />
                                   </button>
                                   <button
                                     type="button"
@@ -852,7 +878,7 @@ export default function LessonManager() {
                                     onClick={() => void deleteLesson(lesson)}
                                     className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 cursor-pointer"
                                   >
-                                    <Trash2 size={13} />
+                                    <Trash2 size={15} />
                                   </button>
                                 </div>
                               );
@@ -869,9 +895,9 @@ export default function LessonManager() {
                                 setError("");
                                 setNotice("");
                               }}
-                              className="flex w-full items-center gap-2 px-3 py-2.5 text-[10px] font-semibold text-blue-600 hover:bg-blue-50 cursor-pointer"
+                              className="flex w-full items-center gap-2 px-4 py-3 text-xs font-semibold text-blue-600 hover:bg-blue-50 cursor-pointer"
                             >
-                              <Plus size={13} /> Thêm bài học vào chương
+                              <Plus size={15} /> Thêm bài học vào chương
                             </button>
                           </div>
                         )}
@@ -893,23 +919,23 @@ export default function LessonManager() {
               if (event.target === event.currentTarget) setSelectedLessonId(null);
             }}
           >
-            <div className="max-h-[90vh] w-full max-w-4xl space-y-4 overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
+            <div className="max-h-[90vh] w-full max-w-4xl space-y-5 overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
               <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 pb-4">
                 <div className="min-w-0">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-blue-600">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-blue-600">
                     {chapters.find((chapter) => chapter.id === selectedLesson.chapterId)?.title} ·{" "}
                     {lessonTypeLabels[selectedLesson.lessonType]}
                   </p>
-                  <h2 className="mt-1 truncate text-base font-bold text-[#17305f]">{selectedLesson.title}</h2>
+                  <h2 className="mt-1 truncate text-lg font-bold text-[#17305f]">{selectedLesson.title}</h2>
                 </div>
                 <div className="flex items-center gap-2">
                   {(selectedLesson.lessonType === "QUIZ" || selectedLesson.lessonType === "VIDEO") && (
-                    <a
+                    <Link
                       href="/teacher/question_bank"
-                      className="inline-flex items-center gap-1 rounded-lg border px-2.5 py-2 text-[10px] font-semibold text-slate-600 hover:bg-slate-50"
+                      className="inline-flex items-center gap-1 rounded-lg border px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
                     >
-                      Ngân hàng câu hỏi <ExternalLink size={12} />
-                    </a>
+                      Ngân hàng câu hỏi <ExternalLink size={14} />
+                    </Link>
                   )}
                   <button
                     type="button"
@@ -920,31 +946,31 @@ export default function LessonManager() {
                     }}
                     className="rounded-lg border p-2 text-slate-500 hover:bg-slate-50 cursor-pointer"
                   >
-                    <X size={15} />
+                    <X size={17} />
                   </button>
                 </div>
               </div>
 
               <form onSubmit={saveLesson} className="space-y-4">
-                <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_170px_78px]">
-                  <label className="text-[10px] font-semibold text-slate-600">
+                <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_180px_90px]">
+                  <label className="text-xs font-semibold text-slate-700">
                     Tên bài học
                     <input
                       required
                       maxLength={255}
                       value={lessonForm.title}
                       onChange={(event) => setLessonForm({ ...lessonForm, title: event.target.value })}
-                      className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 px-3 text-xs font-normal outline-none focus:border-blue-400"
+                      className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm font-normal outline-none focus:border-blue-400"
                     />
                   </label>
-                  <label className="text-[10px] font-semibold text-slate-600">
+                  <label className="text-xs font-semibold text-slate-700">
                     Loại bài
                     <select
                       value={lessonForm.lessonType}
                       onChange={(event) =>
                         setLessonForm({ ...lessonForm, lessonType: event.target.value as Lesson["lessonType"] })
                       }
-                      className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs font-normal cursor-pointer"
+                      className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-normal cursor-pointer"
                     >
                       {Object.entries(lessonTypeLabels).map(([value, label]) => (
                         <option key={value} value={value}>
@@ -953,7 +979,7 @@ export default function LessonManager() {
                       ))}
                     </select>
                   </label>
-                  <label className="text-[10px] font-semibold text-slate-600">
+                  <label className="text-xs font-semibold text-slate-700">
                     Thứ tự
                     <input
                       required
@@ -961,21 +987,21 @@ export default function LessonManager() {
                       min="0"
                       value={lessonForm.orderIndex}
                       onChange={(event) => setLessonForm({ ...lessonForm, orderIndex: event.target.value })}
-                      className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 px-2 text-xs font-normal"
+                      className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm font-normal"
                     />
                   </label>
                 </div>
 
                 {lessonForm.lessonType === "VIDEO" && (
                   <>
-                    <label className="block text-[10px] font-semibold text-slate-600">
+                    <label className="block text-xs font-semibold text-slate-700">
                       Đường dẫn video
                       <input
                         type="url"
                         value={lessonForm.videoUrl}
                         onChange={(event) => setLessonForm({ ...lessonForm, videoUrl: event.target.value })}
                         placeholder="https://..."
-                        className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 px-3 text-xs font-normal outline-none focus:border-blue-400"
+                        className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 px-3.5 text-sm font-normal outline-none focus:border-blue-400"
                       />
                     </label>
                     {lessonForm.videoUrl && (
@@ -984,20 +1010,20 @@ export default function LessonManager() {
                   </>
                 )}
 
-                <label className="block text-[10px] font-semibold text-slate-600">
+                <label className="block text-xs font-semibold text-slate-700">
                   Nội dung bài học
                   <textarea
                     rows={6}
                     value={lessonForm.contentText}
                     onChange={(event) => setLessonForm({ ...lessonForm, contentText: event.target.value })}
                     placeholder="Nhập hướng dẫn, ghi chú hoặc nội dung bài đọc..."
-                    className="mt-1.5 w-full rounded-lg border border-slate-200 p-3 text-xs font-normal leading-5 outline-none focus:border-blue-400"
+                    className="mt-1.5 w-full rounded-lg border border-slate-200 p-3.5 text-sm font-normal leading-6 outline-none focus:border-blue-400"
                   />
                 </label>
 
-                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3">
-                  <div className="flex items-center gap-4">
-                    <label className="flex items-center gap-2 text-[11px] font-medium text-slate-600 cursor-pointer">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
+                  <div className="flex items-center gap-5">
+                    <label className="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer">
                       <input
                         type="checkbox"
                         checked={lessonForm.isFreePreview}
@@ -1008,42 +1034,42 @@ export default function LessonManager() {
                       Cho phép học thử
                     </label>
                     {lessonForm.lessonType === "VIDEO" && (
-                      <label className="flex items-center gap-2 text-[11px] font-medium text-slate-600">
+                      <label className="flex items-center gap-2 text-xs font-medium text-slate-700">
                         Thời lượng (giây)
                         <input
                           type="number"
                           min="0"
                           value={lessonForm.durationSeconds}
                           onChange={(event) => setLessonForm({ ...lessonForm, durationSeconds: event.target.value })}
-                          className="h-8 w-20 rounded-md border px-2 text-xs"
+                          className="h-9 w-24 rounded-lg border px-2.5 text-sm font-normal"
                         />
                       </label>
                     )}
                   </div>
                   <button
                     disabled={busy || videoQuestionsLoading || videoQuestionsLoadError}
-                    className="inline-flex h-9 items-center gap-2 rounded-lg bg-blue-600 px-4 font-semibold text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+                    className="inline-flex h-10 items-center gap-2 rounded-xl bg-blue-600 px-5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
                   >
-                    <Save size={14} /> {videoQuestionsLoading ? "Đang tải câu hỏi..." : "Lưu bài học"}
+                    <Save size={16} /> {videoQuestionsLoading ? "Đang tải câu hỏi..." : "Lưu bài học"}
                   </button>
                 </div>
               </form>
 
               {lessonForm.lessonType === "VIDEO" && (
-                <section className="mt-6 space-y-3 border-t border-slate-100 pt-5">
+                <section className="mt-6 space-y-4 border-t border-slate-100 pt-5">
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div>
-                      <h3 className="font-bold text-slate-800">Câu hỏi xuất hiện trong video</h3>
-                      <p className="mt-1 text-[10px] text-slate-500">
+                      <h3 className="text-sm font-bold text-slate-800">Câu hỏi xuất hiện trong video</h3>
+                      <p className="mt-1 text-xs text-slate-500">
                         Chọn câu hỏi và thời điểm video sẽ tạm dừng để hiển thị câu hỏi cho học viên. Lưu cùng nút “Lưu bài học”.
                       </p>
                     </div>
                     <button
                       type="button"
                       onClick={() => setVideoQuestionDrafts((current) => [...current, { ...emptyVideoQuestion }])}
-                      className="inline-flex items-center gap-1 rounded-lg border border-blue-200 px-2.5 py-2 text-[10px] font-semibold text-blue-700 hover:bg-blue-50 cursor-pointer"
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-50 cursor-pointer"
                     >
-                      <Plus size={13} /> Thêm mốc câu hỏi
+                      <Plus size={15} /> Thêm mốc câu hỏi
                     </button>
                   </div>
                   {videoQuestionDrafts.map((draft, index) => {
@@ -1056,7 +1082,7 @@ export default function LessonManager() {
                     return (
                       <div
                         key={`${selectedLesson.id}-video-question-${index}`}
-                        className="grid gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 sm:grid-cols-[minmax(0,1fr)_75px_75px_auto]"
+                        className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3.5 sm:grid-cols-[minmax(0,1fr)_90px_90px_auto]"
                       >
                         <select
                           aria-label={`Câu hỏi tại mốc ${index + 1}`}
@@ -1070,7 +1096,7 @@ export default function LessonManager() {
                               )
                             )
                           }
-                          className="h-9 min-w-0 rounded-lg border bg-white px-2 text-[10px] cursor-pointer"
+                          className="h-10 min-w-0 rounded-lg border bg-white px-3 text-xs cursor-pointer"
                         >
                           <option value="">Chọn câu hỏi</option>
                           {questions
@@ -1081,7 +1107,7 @@ export default function LessonManager() {
                               </option>
                             ))}
                         </select>
-                        <label className="text-[9px] font-medium text-slate-500">
+                        <label className="text-xs font-medium text-slate-600">
                           Phút
                           <input
                             aria-label={`Phút tại mốc ${index + 1}`}
@@ -1095,10 +1121,10 @@ export default function LessonManager() {
                                 )
                               )
                             }
-                            className="mt-1 h-8 w-full rounded-md border px-2 text-xs text-slate-800"
+                            className="mt-1 h-9 w-full rounded-lg border px-2.5 text-xs text-slate-800"
                           />
                         </label>
-                        <label className="text-[9px] font-medium text-slate-500">
+                        <label className="text-xs font-medium text-slate-600">
                           Giây
                           <input
                             aria-label={`Giây tại mốc ${index + 1}`}
@@ -1113,7 +1139,7 @@ export default function LessonManager() {
                                 )
                               )
                             }
-                            className="mt-1 h-8 w-full rounded-md border px-2 text-xs text-slate-800"
+                            className="mt-1 h-9 w-full rounded-lg border px-2.5 text-xs text-slate-800"
                           />
                         </label>
                         <button
@@ -1124,60 +1150,60 @@ export default function LessonManager() {
                               current.filter((_, itemIndex) => itemIndex !== index)
                             )
                           }
-                          className="self-end rounded-lg p-2 text-slate-400 hover:bg-red-50 hover:text-red-600 cursor-pointer"
+                          className="self-end rounded-lg p-2.5 text-slate-400 hover:bg-red-50 hover:text-red-600 cursor-pointer"
                         >
-                          <Trash2 size={14} />
+                          <Trash2 size={16} />
                         </button>
                       </div>
                     );
                   })}
                   {videoQuestionsLoading && (
-                    <p role="status" className="rounded-lg bg-slate-50 p-3 text-[10px] text-slate-500">
+                    <p role="status" className="rounded-lg bg-slate-50 p-3.5 text-xs text-slate-500">
                       Đang tải câu hỏi video đã lưu...
                     </p>
                   )}
                   {videoQuestionsLoadError && (
-                    <p role="alert" className="rounded-lg bg-red-50 p-3 text-[10px] text-red-700">
+                    <p role="alert" className="rounded-lg bg-red-50 p-3.5 text-xs text-red-700">
                       Không lưu bài học khi chưa tải được câu hỏi hiện có, để tránh ghi đè dữ liệu. Hãy tải lại trang và thử lại.
                     </p>
                   )}
                   {videoQuestionDrafts.length === 0 && (
-                    <p className="rounded-lg bg-slate-50 p-3 text-[10px] text-slate-500">
+                    <p className="rounded-lg bg-slate-50 p-3.5 text-xs text-slate-500">
                       Chưa có câu hỏi tương tác. Tạo câu hỏi trong{" "}
-                      <a href="/teacher/question_bank" className="font-semibold text-blue-700 underline">
+                      <Link href="/teacher/question_bank" className="font-semibold text-blue-700 underline">
                         ngân hàng câu hỏi
-                      </a>
+                      </Link>
                       , sau đó thêm mốc video tại đây.
                     </p>
                   )}
                 </section>
               )}
 
-              {/* KHỐI CẤU HÌNH QUIZ ĐÃ NÂNG CẤP */}
+              {/* KHỐI CẤU HÌNH QUIZ */}
               {lessonForm.lessonType === "QUIZ" && (
                 <form onSubmit={saveQuiz} className="mt-6 space-y-4 border-t border-slate-100 pt-5">
                   <div>
-                    <h3 className="font-bold text-slate-800">Cấu hình bài Quiz tổng kết</h3>
-                    <p className="mt-1 text-[10px] text-slate-500">
+                    <h3 className="text-sm font-bold text-slate-800">Cấu hình bài Quiz tổng kết</h3>
+                    <p className="mt-1 text-xs text-slate-500">
                       Các thông số này sẽ được áp dụng cố định cho học viên khi bắt đầu bài tổng kết.
                     </p>
-                    <p className="mt-1 text-[10px] text-slate-500">
+                    <p className="mt-1 text-xs text-slate-500">
                       Với chế độ chọn thủ công, số câu thi không được vượt quá số câu đã chọn ({quizConfig.questionIds.length}).
                     </p>
                   </div>
 
-                  <label className="block text-[10px] font-semibold text-slate-600">
+                  <label className="block text-xs font-semibold text-slate-700">
                     Tên bài quiz
                     <input
                       required
                       value={quizConfig.title}
                       onChange={(event) => setQuizConfig({ ...quizConfig, title: event.target.value })}
-                      className="mt-1.5 h-9 w-full rounded-lg border px-3 text-xs font-normal outline-none focus:border-blue-400"
+                      className="mt-1.5 h-10 w-full rounded-lg border px-3 text-sm font-normal outline-none focus:border-blue-400"
                     />
                   </label>
 
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                    <label className="text-[10px] font-semibold text-slate-600">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                    <label className="text-xs font-semibold text-slate-700">
                       Thời gian làm bài (phút)
                       <input
                         type="number"
@@ -1186,11 +1212,11 @@ export default function LessonManager() {
                         onChange={(event) =>
                           setQuizConfig({ ...quizConfig, timeLimitMinutes: Number(event.target.value) })
                         }
-                        className="mt-1.5 h-9 w-full rounded-lg border px-3 text-xs font-normal"
+                        className="mt-1.5 h-10 w-full rounded-lg border px-3 text-sm font-normal"
                       />
                     </label>
 
-                    <label className="text-[10px] font-semibold text-slate-600">
+                    <label className="text-xs font-semibold text-slate-700">
                       Điểm đạt (%)
                       <input
                         type="number"
@@ -1200,11 +1226,11 @@ export default function LessonManager() {
                         onChange={(event) =>
                           setQuizConfig({ ...quizConfig, passScore: Number(event.target.value) })
                         }
-                        className="mt-1.5 h-9 w-full rounded-lg border px-3 text-xs font-normal"
+                        className="mt-1.5 h-10 w-full rounded-lg border px-3 text-sm font-normal"
                       />
                     </label>
 
-                    <label className="text-[10px] font-semibold text-slate-600">
+                    <label className="text-xs font-semibold text-slate-700">
                       Số câu hỏi rút ngẫu nhiên
                       <input
                         type="number"
@@ -1218,14 +1244,14 @@ export default function LessonManager() {
                         onChange={(event) =>
                           setQuizConfig({ ...quizConfig, questionCount: Number(event.target.value) })
                         }
-                        className="mt-1.5 h-9 w-full rounded-lg border px-3 text-xs font-normal"
+                        className="mt-1.5 h-10 w-full rounded-lg border px-3 text-sm font-normal"
                       />
                     </label>
                   </div>
 
                   <div className="space-y-2">
-                    <p className="text-[10px] font-semibold text-slate-600">Hình thức lấy câu hỏi</p>
-                    <div className="flex gap-4">
+                    <p className="text-xs font-semibold text-slate-700">Hình thức lấy câu hỏi</p>
+                    <div className="flex flex-wrap gap-4">
                       <label className="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer">
                         <input
                           type="radio"
@@ -1248,11 +1274,11 @@ export default function LessonManager() {
                   </div>
 
                   {quizConfig.selectionMode === "MANUAL" && (
-                    <div className="max-h-52 space-y-1 overflow-y-auto rounded-lg border border-slate-200 p-2">
+                    <div className="max-h-56 space-y-1 overflow-y-auto rounded-lg border border-slate-200 p-2.5">
                       {questions.map((question) => (
                         <label
                           key={question.id}
-                          className="flex cursor-pointer items-start gap-2 rounded-md p-2 text-[11px] hover:bg-slate-50"
+                          className="flex cursor-pointer items-start gap-2.5 rounded-lg p-2.5 text-xs hover:bg-slate-50"
                         >
                           <input
                             type="checkbox"
@@ -1270,7 +1296,7 @@ export default function LessonManager() {
                         </label>
                       ))}
                       {questions.length === 0 && (
-                        <p className="p-3 text-center text-[10px] text-slate-500">
+                        <p className="p-4 text-center text-xs text-slate-500">
                           Chưa có câu hỏi phù hợp trong ngân hàng câu hỏi.
                         </p>
                       )}
@@ -1280,7 +1306,7 @@ export default function LessonManager() {
                   <button
                     type="submit"
                     disabled={busy}
-                    className="rounded-lg bg-blue-600 px-4 py-2 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+                    className="rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
                   >
                     Lưu cấu hình Quiz
                   </button>
@@ -1289,15 +1315,15 @@ export default function LessonManager() {
 
               <section className="mt-6 border-t border-slate-100 pt-5">
                 <div className="mb-3">
-                  <h3 className="font-bold text-slate-800">Tài liệu đính kèm</h3>
-                  <p className="mt-1 text-[10px] text-slate-500">
+                  <h3 className="text-sm font-bold text-slate-800">Tài liệu đính kèm</h3>
+                  <p className="mt-1 text-xs text-slate-500">
                     Tải tệp lên máy chủ hoặc gắn URL tài liệu cho học viên.
                   </p>
                 </div>
                 <div className="space-y-2">
                   {selectedLesson.attachments.map((attachment) => (
-                    <div key={attachment.id} className="flex items-center gap-2 rounded-lg border border-slate-100 px-3 py-2">
-                      <FileText size={15} className="shrink-0 text-blue-500" />
+                    <div key={attachment.id} className="flex items-center gap-3 rounded-xl border border-slate-100 px-4 py-2.5">
+                      <FileText size={16} className="shrink-0 text-blue-500" />
                       <a
                         href={
                           attachment.fileUrl.startsWith("/")
@@ -1306,38 +1332,38 @@ export default function LessonManager() {
                         }
                         target="_blank"
                         rel="noreferrer"
-                        className="min-w-0 flex-1 truncate text-[11px] font-medium text-blue-700 hover:underline"
+                        className="min-w-0 flex-1 truncate text-xs font-medium text-blue-700 hover:underline"
                       >
                         {attachment.fileName}
                       </a>
-                      <span className="text-[9px] text-slate-400">
+                      <span className="text-xs text-slate-400">
                         {attachment.fileType} {formatFileSize(attachment.fileSizeBytes)}
                       </span>
                       <button
                         type="button"
                         onClick={() => void deleteAttachment(attachment)}
-                        className="rounded p-1 text-slate-300 hover:bg-red-50 hover:text-red-600 cursor-pointer"
+                        className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 cursor-pointer"
                         title="Xóa tài liệu"
                       >
-                        <Trash2 size={13} />
+                        <Trash2 size={15} />
                       </button>
                     </div>
                   ))}
                   {selectedLesson.attachments.length === 0 && (
-                    <p className="rounded-lg bg-slate-50 p-3 text-[10px] text-slate-500">Chưa có tài liệu đính kèm.</p>
+                    <p className="rounded-lg bg-slate-50 p-3.5 text-xs text-slate-500">Chưa có tài liệu đính kèm.</p>
                   )}
                 </div>
                 <form
                   onSubmit={addAttachment}
-                  className="mt-3 grid gap-2 rounded-xl bg-slate-50 p-3 sm:grid-cols-[1fr_120px_auto]"
+                  className="mt-4 grid gap-3 rounded-xl bg-slate-50 p-4 sm:grid-cols-[1fr_130px_auto]"
                 >
                   <div className="min-w-0">
                     <input
                       type="file"
                       onChange={(event) => setAttachmentFile(event.target.files?.[0] ?? null)}
-                      className="min-w-0 max-w-full text-[10px]"
+                      className="min-w-0 max-w-full text-xs"
                     />
-                    <p className="mt-1 truncate text-[9px] text-slate-500">
+                    <p className="mt-1 truncate text-xs text-slate-500">
                       {attachmentFile
                         ? `${attachmentFile.name} · ${formatFileSize(attachmentFile.size)}`
                         : "Chọn tệp để tải lên (tối đa 10 MB)."}
@@ -1346,7 +1372,7 @@ export default function LessonManager() {
                   <select
                     value={attachmentType}
                     onChange={(event) => setAttachmentType(event.target.value as Attachment["fileType"])}
-                    className="h-9 rounded-lg border bg-white px-2 text-[10px] cursor-pointer"
+                    className="h-10 rounded-lg border bg-white px-3 text-xs cursor-pointer"
                   >
                     <option value="DOCUMENT">Tài liệu</option>
                     <option value="PDF">PDF</option>
@@ -1356,19 +1382,19 @@ export default function LessonManager() {
                   <button
                     type="submit"
                     disabled={busy || !attachmentFile}
-                    className="inline-flex h-9 items-center justify-center gap-1 rounded-lg bg-slate-800 px-3 text-[10px] font-semibold text-white disabled:opacity-50 cursor-pointer"
+                    className="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg bg-slate-800 px-4 text-xs font-semibold text-white disabled:opacity-50 cursor-pointer"
                   >
-                    {busy ? <LoaderCircle size={13} className="animate-spin" /> : <Upload size={13} />}{" "}
+                    {busy ? <LoaderCircle size={15} className="animate-spin" /> : <Upload size={15} />}{" "}
                     {busy ? "Đang tải..." : "Tải lên"}
                   </button>
                 </form>
-                <form onSubmit={addAttachment} className="mt-2 grid gap-2 sm:grid-cols-[1fr_minmax(0,1.5fr)_120px_auto]">
+                <form onSubmit={addAttachment} className="mt-3 grid gap-3 sm:grid-cols-[1fr_minmax(0,1.5fr)_130px_auto]">
                   <input
                     required
                     value={attachmentName}
                     onChange={(event) => setAttachmentName(event.target.value)}
                     placeholder="Tên tài liệu"
-                    className="h-9 min-w-0 rounded-lg border px-2.5 text-[10px]"
+                    className="h-10 min-w-0 rounded-lg border px-3 text-xs"
                   />
                   <input
                     required
@@ -1376,12 +1402,12 @@ export default function LessonManager() {
                     value={attachmentUrl}
                     onChange={(event) => setAttachmentUrl(event.target.value)}
                     placeholder="https://đường-dẫn-tài-liệu"
-                    className="h-9 min-w-0 rounded-lg border px-2.5 text-[10px]"
+                    className="h-10 min-w-0 rounded-lg border px-3 text-xs"
                   />
                   <select
                     value={attachmentType}
                     onChange={(event) => setAttachmentType(event.target.value as Attachment["fileType"])}
-                    className="h-9 rounded-lg border bg-white px-2 text-[10px] cursor-pointer"
+                    className="h-10 rounded-lg border bg-white px-3 text-xs cursor-pointer"
                   >
                     <option value="DOCUMENT">Tài liệu</option>
                     <option value="PDF">PDF</option>
@@ -1390,7 +1416,7 @@ export default function LessonManager() {
                   </select>
                   <button
                     disabled={busy}
-                    className="h-9 rounded-lg border px-3 text-[10px] font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50 cursor-pointer"
+                    className="h-10 rounded-lg border px-4 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50 cursor-pointer"
                   >
                     Lưu URL
                   </button>
@@ -1410,11 +1436,11 @@ export default function LessonManager() {
             }}
           >
             {newLessonStep === 1 ? (
-              <form onSubmit={continueLessonCreation} className="w-full max-w-md space-y-4 rounded-2xl bg-white p-5 shadow-xl">
+              <form onSubmit={continueLessonCreation} className="w-full max-w-md space-y-4 rounded-2xl bg-white p-6 shadow-xl">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h2 className="font-bold text-[#17305f]">Thông tin bài học</h2>
-                    <p className="mt-1 text-[10px] text-slate-500">
+                    <h2 className="text-base font-bold text-[#17305f]">Thông tin bài học</h2>
+                    <p className="mt-1 text-xs text-slate-500">
                       {chapters.find((chapter) => chapter.id === newLessonChapterId)?.title}
                     </p>
                   </div>
@@ -1423,10 +1449,10 @@ export default function LessonManager() {
                     onClick={() => setNewLessonChapterId(null)}
                     className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 cursor-pointer"
                   >
-                    <X size={17} />
+                    <X size={18} />
                   </button>
                 </div>
-                <label className="block text-[10px] font-semibold text-slate-600">
+                <label className="block text-xs font-semibold text-slate-700">
                   Tên bài học
                   <input
                     required
@@ -1434,15 +1460,15 @@ export default function LessonManager() {
                     autoFocus
                     value={newLessonTitle}
                     onChange={(event) => setNewLessonTitle(event.target.value)}
-                    className="mt-1.5 h-10 w-full rounded-lg border px-3 text-xs font-normal"
+                    className="mt-1.5 h-10 w-full rounded-lg border px-3 text-sm font-normal"
                   />
                 </label>
-                <label className="block text-[10px] font-semibold text-slate-600">
+                <label className="block text-xs font-semibold text-slate-700">
                   Loại bài học
                   <select
                     value={newLessonType}
                     onChange={(event) => setNewLessonType(event.target.value as Lesson["lessonType"])}
-                    className="mt-1.5 h-10 w-full rounded-lg border bg-white px-3 text-xs font-normal cursor-pointer"
+                    className="mt-1.5 h-10 w-full rounded-lg border bg-white px-3 text-sm font-normal cursor-pointer"
                   >
                     {Object.entries(lessonTypeLabels).map(([value, label]) => (
                       <option key={value} value={value}>
@@ -1451,25 +1477,25 @@ export default function LessonManager() {
                     ))}
                   </select>
                 </label>
-                <div className="flex justify-end gap-2 border-t pt-3">
+                <div className="flex justify-end gap-2 border-t pt-4">
                   <button
                     type="button"
                     onClick={() => setNewLessonChapterId(null)}
-                    className="rounded-lg border px-3 py-2 text-[11px] font-semibold text-slate-600 cursor-pointer"
+                    className="rounded-xl border px-4 py-2 text-xs font-semibold text-slate-600 cursor-pointer"
                   >
                     Hủy
                   </button>
-                  <button className="rounded-lg bg-blue-600 px-4 py-2 text-[11px] font-semibold text-white cursor-pointer">
+                  <button className="rounded-xl bg-blue-600 px-5 py-2 text-xs font-semibold text-white cursor-pointer">
                     Tiếp tục
                   </button>
                 </div>
               </form>
             ) : (
-              <form onSubmit={createLesson} className="max-h-[90vh] w-full max-w-2xl space-y-4 overflow-y-auto rounded-2xl bg-white p-5 shadow-xl">
+              <form onSubmit={createLesson} className="max-h-[90vh] w-full max-w-2xl space-y-5 overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h2 className="font-bold text-[#17305f]">Chi tiết bài học</h2>
-                    <p className="mt-1 text-[10px] text-slate-500">
+                    <h2 className="text-base font-bold text-[#17305f]">Chi tiết bài học</h2>
+                    <p className="mt-1 text-xs text-slate-500">
                       {newLessonTitle} · {lessonTypeLabels[newLessonType]}
                     </p>
                   </div>
@@ -1478,12 +1504,12 @@ export default function LessonManager() {
                     onClick={() => setNewLessonChapterId(null)}
                     className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 cursor-pointer"
                   >
-                    <X size={17} />
+                    <X size={18} />
                   </button>
                 </div>
                 {newLessonType === "VIDEO" && (
                   <>
-                    <label className="block text-[10px] font-semibold text-slate-600">
+                    <label className="block text-xs font-semibold text-slate-700">
                       Đường dẫn video
                       <input
                         type="url"
@@ -1492,11 +1518,11 @@ export default function LessonManager() {
                           setNewLessonDetails({ ...newLessonDetails, videoUrl: event.target.value })
                         }
                         placeholder="https://..."
-                        className="mt-1.5 h-10 w-full rounded-lg border px-3 text-xs font-normal"
+                        className="mt-1.5 h-10 w-full rounded-lg border px-3 text-sm font-normal"
                       />
                     </label>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <label className="text-[10px] font-semibold text-slate-600">
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <label className="text-xs font-semibold text-slate-700">
                         Thời lượng (giây)
                         <input
                           type="number"
@@ -1505,10 +1531,10 @@ export default function LessonManager() {
                           onChange={(event) =>
                             setNewLessonDetails({ ...newLessonDetails, durationSeconds: event.target.value })
                           }
-                          className="mt-1.5 h-9 w-full rounded-lg border px-3 text-xs font-normal"
+                          className="mt-1.5 h-10 w-full rounded-lg border px-3 text-sm font-normal"
                         />
                       </label>
-                      <label className="text-[10px] font-semibold text-slate-600">
+                      <label className="text-xs font-semibold text-slate-700">
                         Thứ tự trong chương
                         <input
                           type="number"
@@ -1517,13 +1543,13 @@ export default function LessonManager() {
                           onChange={(event) =>
                             setNewLessonDetails({ ...newLessonDetails, orderIndex: event.target.value })
                           }
-                          className="mt-1.5 h-9 w-full rounded-lg border px-3 text-xs font-normal"
+                          className="mt-1.5 h-10 w-full rounded-lg border px-3 text-sm font-normal"
                         />
                       </label>
                     </div>
                   </>
                 )}
-                <label className="block text-[10px] font-semibold text-slate-600">
+                <label className="block text-xs font-semibold text-slate-700">
                   Nội dung bài học
                   <textarea
                     rows={5}
@@ -1532,11 +1558,11 @@ export default function LessonManager() {
                       setNewLessonDetails({ ...newLessonDetails, contentText: event.target.value })
                     }
                     placeholder="Nhập nội dung hoặc hướng dẫn cho học viên..."
-                    className="mt-1.5 w-full rounded-lg border p-3 text-xs font-normal leading-5"
+                    className="mt-1.5 w-full rounded-lg border p-3.5 text-sm font-normal leading-6"
                   />
                 </label>
                 {newLessonType !== "VIDEO" && (
-                  <label className="block text-[10px] font-semibold text-slate-600">
+                  <label className="block text-xs font-semibold text-slate-700">
                     Thứ tự trong chương
                     <input
                       type="number"
@@ -1545,11 +1571,11 @@ export default function LessonManager() {
                       onChange={(event) =>
                         setNewLessonDetails({ ...newLessonDetails, orderIndex: event.target.value })
                       }
-                      className="mt-1.5 h-9 w-full rounded-lg border px-3 text-xs font-normal"
+                      className="mt-1.5 h-10 w-full rounded-lg border px-3 text-sm font-normal"
                     />
                   </label>
                 )}
-                <label className="flex items-center gap-2 text-[11px] font-medium text-slate-600 cursor-pointer">
+                <label className="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={newLessonDetails.isFreePreview}
@@ -1560,18 +1586,18 @@ export default function LessonManager() {
                   Cho phép học thử
                 </label>
                 {newLessonType === "VIDEO" && (
-                  <section className="space-y-3 border-t pt-4">
+                  <section className="space-y-4 border-t pt-5">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div>
                         <h3 className="text-sm font-bold text-slate-800">Câu hỏi tương tác theo mốc video</h3>
-                        <p className="mt-1 text-[10px] text-slate-500">Video sẽ dừng và hiển thị câu hỏi tại phút:giây đã chọn.</p>
+                        <p className="mt-1 text-xs text-slate-500">Video sẽ dừng và hiển thị câu hỏi tại phút:giây đã chọn.</p>
                       </div>
                       <button
                         type="button"
                         onClick={() => setVideoQuestionDrafts((current) => [...current, { ...emptyVideoQuestion }])}
-                        className="inline-flex items-center gap-1 rounded-lg border border-blue-200 px-2.5 py-2 text-[10px] font-semibold text-blue-700 hover:bg-blue-50 cursor-pointer"
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-50 cursor-pointer"
                       >
-                        <Plus size={13} /> Thêm mốc
+                        <Plus size={15} /> Thêm mốc
                       </button>
                     </div>
                     {videoQuestionDrafts.map((draft, index) => {
@@ -1584,7 +1610,7 @@ export default function LessonManager() {
                       return (
                         <div
                           key={`new-video-question-${index}`}
-                          className="grid gap-2 rounded-xl border bg-slate-50 p-3 sm:grid-cols-[minmax(0,1fr)_75px_75px_auto]"
+                          className="grid gap-3 rounded-xl border bg-slate-50 p-3.5 sm:grid-cols-[minmax(0,1fr)_90px_90px_auto]"
                         >
                           <select
                             aria-label={`Câu hỏi tại mốc ${index + 1}`}
@@ -1598,7 +1624,7 @@ export default function LessonManager() {
                                 )
                               )
                             }
-                            className="h-9 min-w-0 rounded-lg border bg-white px-2 text-[10px] cursor-pointer"
+                            className="h-10 min-w-0 rounded-lg border bg-white px-3 text-xs cursor-pointer"
                           >
                             <option value="">Chọn câu hỏi</option>
                             {questions
@@ -1609,7 +1635,7 @@ export default function LessonManager() {
                                 </option>
                               ))}
                           </select>
-                          <label className="text-[9px] font-medium text-slate-500">
+                          <label className="text-xs font-medium text-slate-600">
                             Phút
                             <input
                               type="number"
@@ -1622,10 +1648,10 @@ export default function LessonManager() {
                                   )
                                 )
                               }
-                              className="mt-1 h-8 w-full rounded-md border px-2 text-xs text-slate-800"
+                              className="mt-1 h-9 w-full rounded-lg border px-2.5 text-xs text-slate-800"
                             />
                           </label>
-                          <label className="text-[9px] font-medium text-slate-500">
+                          <label className="text-xs font-medium text-slate-600">
                             Giây
                             <input
                               type="number"
@@ -1639,7 +1665,7 @@ export default function LessonManager() {
                                   )
                                 )
                               }
-                              className="mt-1 h-8 w-full rounded-md border px-2 text-xs text-slate-800"
+                              className="mt-1 h-9 w-full rounded-lg border px-2.5 text-xs text-slate-800"
                             />
                           </label>
                           <button
@@ -1650,40 +1676,40 @@ export default function LessonManager() {
                                 current.filter((_, itemIndex) => itemIndex !== index)
                               )
                             }
-                            className="self-end rounded-lg p-2 text-slate-400 hover:bg-red-50 hover:text-red-600 cursor-pointer"
+                            className="self-end rounded-lg p-2.5 text-slate-400 hover:bg-red-50 hover:text-red-600 cursor-pointer"
                           >
-                            <Trash2 size={14} />
+                            <Trash2 size={16} />
                           </button>
                         </div>
                       );
                     })}
                     {questionsLoading && (
-                      <p role="status" className="rounded-lg bg-slate-50 p-3 text-[10px] text-slate-500">
+                      <p role="status" className="rounded-lg bg-slate-50 p-3.5 text-xs text-slate-500">
                         Đang tải ngân hàng câu hỏi...
                       </p>
                     )}
                     {!questionsLoading && questions.length === 0 && (
-                      <p className="rounded-lg bg-amber-50 p-3 text-[10px] text-amber-800">
+                      <p className="rounded-lg bg-amber-50 p-3.5 text-xs text-amber-800">
                         Chưa có câu hỏi trong ngân hàng. Tạo câu hỏi trước tại{" "}
-                        <a href="/teacher/question_bank" className="font-semibold underline">
+                        <Link href="/teacher/question_bank" className="font-semibold underline">
                           Ngân hàng câu hỏi
-                        </a>
+                        </Link>
                         , rồi quay lại thêm mốc video.
                       </p>
                     )}
                   </section>
                 )}
-                <div className="flex justify-between gap-2 border-t pt-3">
+                <div className="flex justify-between gap-2 border-t pt-4">
                   <button
                     type="button"
                     onClick={() => setNewLessonStep(1)}
-                    className="rounded-lg border px-3 py-2 text-[11px] font-semibold text-slate-600 cursor-pointer"
+                    className="rounded-xl border px-4 py-2 text-xs font-semibold text-slate-600 cursor-pointer"
                   >
                     Quay lại
                   </button>
                   <button
                     disabled={busy}
-                    className="rounded-lg bg-blue-600 px-4 py-2 text-[11px] font-semibold text-white disabled:opacity-50 cursor-pointer"
+                    className="rounded-xl bg-blue-600 px-5 py-2 text-xs font-semibold text-white disabled:opacity-50 cursor-pointer"
                   >
                     {busy ? "Đang lưu..." : "Lưu bài học"}
                   </button>

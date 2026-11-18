@@ -9,8 +9,29 @@ import java.util.List;
 import java.util.Optional;
 
 public interface LessonRepository extends JpaRepository<Lesson, Long> {
+    interface CourseDurationSummary {
+        Long getCourseId();
+        Long getTotalDurationSeconds();
+    }
+
     Optional<Lesson> findByIdAndChapterCourseId(Long id, Long courseId);
     List<Lesson> findByChapterIdOrderByOrderIndexAscIdAsc(Long chapterId);
+    long countByChapterCourseId(Long courseId);
+
+    @Query("""
+            SELECT lesson.chapter.course.id AS courseId,
+                   COALESCE(SUM(lesson.durationSeconds), 0) AS totalDurationSeconds
+            FROM Lesson lesson
+            GROUP BY lesson.chapter.course.id
+            """)
+    List<CourseDurationSummary> sumDurationSecondsByCourse();
+
+    @Query("""
+            SELECT COALESCE(SUM(lesson.durationSeconds), 0)
+            FROM Lesson lesson
+            WHERE lesson.chapter.course.id = :courseId
+            """)
+    long sumDurationSecondsByCourseId(@Param("courseId") Long courseId);
 
     @Query("""
             SELECT lesson.chapter.course.id AS courseId, COUNT(lesson.id) AS lessonCount

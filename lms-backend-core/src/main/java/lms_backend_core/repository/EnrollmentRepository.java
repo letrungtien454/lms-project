@@ -24,11 +24,26 @@ public interface EnrollmentRepository extends JpaRepository<Enrollment, Long> {
         BigDecimal getRevenue();
     }
 
+    interface CourseStudentCount {
+        Long getCourseId();
+        Long getStudentCount();
+    }
+
     // Kiểm tra xem học viên đã đăng ký khóa học chưa
     boolean existsByStudentIdAndCourseId(Long studentId, Long courseId);
 
+    @EntityGraph(attributePaths = {"course", "course.teacher", "course.category"})
+    List<Enrollment> findAllByStudentIdOrderByEnrolledAtDesc(Long studentId);
+
     // Bổ sung hàm này để Spring Data JPA tự động tạo query SELECT COUNT(*) WHERE course_id = ?
     long countByCourseId(Long courseId);
+
+    @Query("""
+            SELECT e.course.id AS courseId, COUNT(e.id) AS studentCount
+            FROM Enrollment e
+            GROUP BY e.course.id
+            """)
+    List<CourseStudentCount> countStudentsByCourse();
 
     @Query("SELECT COUNT(DISTINCT e.student.id) FROM Enrollment e WHERE e.course.teacher.id = :teacherId")
     long countDistinctStudentsByTeacherId(@Param("teacherId") Long teacherId);

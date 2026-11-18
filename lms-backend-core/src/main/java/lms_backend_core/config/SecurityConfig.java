@@ -1,6 +1,7 @@
 package lms_backend_core.config;
 
 import lms_backend_core.security.JwtAuthenticationFilter;
+import lms_backend_core.security.MaintenanceModeFilter;
 import jakarta.servlet.DispatcherType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
@@ -14,6 +15,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -26,10 +28,19 @@ import java.util.List;
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final MaintenanceModeFilter maintenanceModeFilter;
 
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
+    }
+
+    @Bean
+    public FilterRegistrationBean<MaintenanceModeFilter> maintenanceModeFilterRegistration(
+            MaintenanceModeFilter filter) {
+        FilterRegistrationBean<MaintenanceModeFilter> registration = new FilterRegistrationBean<>(filter);
+        registration.setEnabled(false);
+        return registration;
     }
 
     @Bean
@@ -44,6 +55,7 @@ public class SecurityConfig {
                 
                 // --- Public Resources ---
                 .requestMatchers(HttpMethod.GET, "/uploads/**").permitAll()
+                .requestMatchers(HttpMethod.GET, "/payment/vnpay/return").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/payments/vnpay/ipn").permitAll()
                 .requestMatchers("/api/auth/**", "/api/courses", "/api/courses/**").permitAll()
                 
@@ -75,7 +87,8 @@ public class SecurityConfig {
                     response.getWriter().write("{\"message\":\"Phiên làm việc hết hạn hoặc chưa đăng nhập.\"}");
                 })
             )
-            .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+            .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+            .addFilterAfter(maintenanceModeFilter, JwtAuthenticationFilter.class);
 
         return http.build();
     }

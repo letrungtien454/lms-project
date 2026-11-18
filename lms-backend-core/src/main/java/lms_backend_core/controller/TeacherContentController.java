@@ -1,10 +1,12 @@
 package lms_backend_core.controller;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.validation.Valid;
 import lms_backend_core.dto.TeacherContentDtos;
 import lms_backend_core.config.UploadResourceConfig;
 import lms_backend_core.entity.*;
 import lms_backend_core.repository.*;
+import lms_backend_core.service.AuditLogService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
@@ -27,6 +29,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import jakarta.servlet.http.HttpServletRequest;
 
 @RestController
 @RequestMapping("/api/teacher")
@@ -42,6 +45,7 @@ public class TeacherContentController {
     private final QuizRepository quizRepository;
     private final VideoInteractiveQuestionRepository videoQuestionRepository;
     private final UploadResourceConfig uploadResourceConfig;
+    private final AuditLogService auditLogService;
 
     @Value("${app.upload-max-bytes:10485760}")
     private long maximumUploadBytes;
@@ -57,6 +61,17 @@ public class TeacherContentController {
                         .map(lesson -> TeacherContentDtos.LessonView.from(
                                 lesson, attachmentRepository.findAllByLessonIdOrderByIdAsc(lesson.getId())))
                         .toList()))
+                .toList();
+    }
+
+    @GetMapping("/courses/{courseId}/chapters")
+    @Transactional(readOnly = true)
+    public List<TeacherContentDtos.ChapterView> getCourseChapters(
+            @PathVariable Long courseId,
+            Authentication authentication) {
+        requireOwnedCourse(courseId, authentication);
+        return chapterRepository.findByCourseIdOrderByOrderIndexAscIdAsc(courseId).stream()
+                .map(chapter -> TeacherContentDtos.ChapterView.from(chapter, List.of()))
                 .toList();
     }
 
@@ -270,7 +285,8 @@ public class TeacherContentController {
     @ResponseStatus(HttpStatus.CREATED)
     public TeacherContentDtos.QuestionView createQuestion(
             @Valid @RequestBody TeacherContentDtos.QuestionInput input,
-            Authentication authentication) {
+            Authentication authentication,
+            HttpServletRequest request) {
         User teacher = currentTeacher(authentication);
         if (input.courseId() != null)
             requireOwnedCourse(input.courseId(), authentication);
@@ -279,7 +295,9 @@ public class TeacherContentController {
         question.setTeacherId(teacher.getId());
         question.setCourseId(input.courseId());
         applyQuestionInput(question, input);
-        return TeacherContentDtos.QuestionView.from(questionRepository.save(question));
+        QuestionBank saved = questionRepository.save(question);
+        auditLogService.record(authentication, request, "Tạo câu hỏi", saved.getQuestionText(), "INFO");
+        return TeacherContentDtos.QuestionView.from(saved);
     }
 
     @PutMapping("/question-bank/{questionId}")
@@ -287,7 +305,8 @@ public class TeacherContentController {
     public TeacherContentDtos.QuestionView updateQuestion(
             @PathVariable Long questionId,
             @Valid @RequestBody TeacherContentDtos.QuestionInput input,
-            Authentication authentication) {
+            Authentication authentication,
+            HttpServletRequest request) {
         User teacher = currentTeacher(authentication);
         QuestionBank question = questionRepository.findById(questionId)
                 .filter(value -> value.getTeacherId().equals(teacher.getId()))
@@ -297,13 +316,18 @@ public class TeacherContentController {
         validateQuestionChapter(input, authentication);
         question.setCourseId(input.courseId());
         applyQuestionInput(question, input);
-        return TeacherContentDtos.QuestionView.from(questionRepository.save(question));
+        QuestionBank saved = questionRepository.save(question);
+        auditLogService.record(authentication, request, "Cập nhật câu hỏi", "Question #" + questionId, "INFO");
+        return TeacherContentDtos.QuestionView.from(saved);
     }
 
     @DeleteMapping("/question-bank/{questionId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @Transactional
-    public void deleteQuestion(@PathVariable Long questionId, Authentication authentication) {
+    public void deleteQuestion(
+            @PathVariable Long questionId,
+            Authentication authentication,
+            HttpServletRequest request) {
         User teacher = currentTeacher(authentication);
         QuestionBank question = questionRepository.findById(questionId)
                 .filter(value -> value.getTeacherId().equals(teacher.getId()))
@@ -313,8 +337,11 @@ public class TeacherContentController {
             questionRepository.flush();
         } catch (DataAccessException exception) {
             throw new ResponseStatusException(
-                    HttpStatus.CONFLICT, "This question is used by a quiz and cannot be deleted.", exception);
+                    HttpStatus.CONFLICT,
+                    "Câu hỏi đang được sử dụng trong bài kiểm tra nên không thể xóa. Hãy gỡ câu hỏi khỏi bài kiểm tra trước.",
+                    exception);
         }
+        auditLogService.record(authentication, request, "Xóa câu hỏi", "Question #" + questionId, "WARNING");
     }
 
     @PutMapping("/lessons/{lessonId}/quiz")
@@ -362,7 +389,7 @@ public class TeacherContentController {
             Authentication authentication) {
         requireOwnedLesson(lessonId, authentication);
         return videoQuestionRepository.findAllByLessonIdOrderByVideoTimestampAscIdAsc(lessonId).stream()
-                .map(item -> new TeacherContentDtos.VideoQuestionView(
+                .map(item -> TeacherContentDtos.VideoQuestionView.from(
                         item.getId(),
                         item.getQuestion().getId(),
                         item.getQuestion().getQuestionText(),
@@ -430,7 +457,7 @@ public class TeacherContentController {
         return videoQuestionRepository.saveAll(saved).stream()
                 .sorted(Comparator.comparing(VideoInteractiveQuestion::getVideoTimestamp)
                         .thenComparing(VideoInteractiveQuestion::getId))
-                .map(item -> new TeacherContentDtos.VideoQuestionView(item.getId(),
+                .map(item -> TeacherContentDtos.VideoQuestionView.from(item.getId(),
                 item.getQuestion().getId(), item.getQuestion().getQuestionText(), item.getQuestion().getOptionsJson(),
                 item.getQuestion().getCorrectOption(), item.getVideoTimestamp()))
                 .toList();
@@ -448,18 +475,19 @@ public class TeacherContentController {
 
     private void applyQuestionInput(QuestionBank question, TeacherContentDtos.QuestionInput input) {
         String questionType = parseQuestionType(input.questionType());
-        boolean hasCorrectOption = input.optionsJson().isArray()
-                && input.optionsJson().size() >= 2
-                && input.optionsJson().findValuesAsText("id").contains(input.correctOption().trim());
+        JsonNode optionsJson = TeacherContentDtos.toJsonNode(input.optionsJson());
+        boolean hasCorrectOption = optionsJson.isArray()
+                && optionsJson.size() >= 2
+                && optionsJson.findValuesAsText("id").contains(input.correctOption().trim());
         if ("MULTIPLE_CHOICE".equals(questionType) && !hasCorrectOption) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST, "optionsJson must contain an option whose id matches correctOption.");
         }
-        if (!input.optionsJson().isArray()) {
+        if (!optionsJson.isArray()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "optionsJson must be an array.");
         }
         question.setQuestionText(input.questionText().trim());
-        question.setOptionsJson(input.optionsJson());
+        question.setOptionsJson(optionsJson);
         question.setCorrectOption("MULTIPLE_CHOICE".equals(questionType) ? input.correctOption().trim() : "A");
         question.setExplanation(input.explanation());
         question.setQuestionType(questionType);

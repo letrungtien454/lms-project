@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { getSessionUserName } from "@/lib/auth-session";
 import {
   ArrowUpRight,
@@ -15,7 +16,7 @@ import {
   UserPlus,
   Users,
 } from "lucide-react";
-import { apiRequest } from "@/lib/api";
+import { API_BASE_URL, apiRequest } from "@/lib/api";
 
 type Dashboard = {
   totalUsers: number;
@@ -74,6 +75,32 @@ function getVietnameseInitial(fullName: string): string {
   const parts = fullName.trim().split(/\s+/);
   const firstName = parts[parts.length - 1];
   return firstName.charAt(0).toUpperCase();
+}
+
+function AdminUserAvatar({ src, name }: { src?: string | null; name: string }) {
+  const [failed, setFailed] = useState(false);
+  const imageUrl = src
+    ? /^https?:\/\//i.test(src)
+      ? src
+      : new URL(src.startsWith("/") ? src : `/${src}`, API_BASE_URL).toString()
+    : null;
+
+  if (!imageUrl || failed) {
+    return (
+      <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-linear-to-br from-blue-500 to-indigo-600 text-[9px] font-extrabold text-white shadow-2xs">
+        {getVietnameseInitial(name)}
+      </span>
+    );
+  }
+
+  return (
+    <img
+      src={imageUrl}
+      alt={name}
+      onError={() => setFailed(true)}
+      className="size-7 shrink-0 rounded-full object-cover ring-1 ring-slate-200"
+    />
+  );
 }
 
 export default function AdminDashboardPage() {
@@ -135,9 +162,9 @@ export default function AdminDashboardPage() {
             </p>
           </div>
 
-          <a
+          <Link
             href="/admin/users?role=TEACHER"
-            className="group relative flex min-h-[112px] items-center overflow-hidden rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-500 px-6 text-white shadow-lg shadow-blue-200 md:col-span-5"
+            className="group relative flex min-h-28 items-center overflow-hidden rounded-2xl bg-linear-to-r from-blue-600 via-indigo-600 to-violet-500 px-6 text-white shadow-lg shadow-blue-200 md:col-span-5"
           >
             <div className="relative z-10">
               <p className="text-base font-bold">Yêu cầu giảng viên</p>
@@ -150,7 +177,7 @@ export default function AdminDashboardPage() {
             </div>
             <GraduationCap className="absolute -right-1 -top-5 size-36 text-white/15" />
             <UserPlus className="absolute bottom-5 right-8 size-9 text-white/35" />
-          </a>
+          </Link>
         </div>
 
         {error && (
@@ -220,9 +247,9 @@ export default function AdminDashboardPage() {
               <article className="space-y-4 rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[0_4px_18px_rgba(23,48,95,0.05)] md:col-span-7">
                 <div className="flex items-center justify-between">
                   <h2 className="text-xs font-bold text-[#17305f]">Phân bố vai trò người dùng</h2>
-                  <a href="/admin/users" className="text-[10px] font-bold text-blue-600 hover:underline">
+                  <Link href="/admin/users" className="text-[10px] font-bold text-blue-600 hover:underline">
                     Quản lý người dùng →
-                  </a>
+                  </Link>
                 </div>
                 <div className="flex flex-wrap items-center justify-center gap-8 py-2 sm:justify-between">
                   <div
@@ -262,9 +289,9 @@ export default function AdminDashboardPage() {
               <article className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[0_4px_18px_rgba(23,48,95,0.05)] md:col-span-5">
                 <div className="flex items-center justify-between">
                   <h2 className="text-xs font-bold text-[#17305f]">Yêu cầu cần xử lý</h2>
-                  <a href="/admin/users?role=TEACHER" className="text-[10px] font-bold text-blue-600 hover:underline">
+                  <Link href="/admin/users?role=TEACHER" className="text-[10px] font-bold text-blue-600 hover:underline">
                     Xem tất cả →
-                  </a>
+                  </Link>
                 </div>
                 <div className="mt-4 space-y-2">
                   {teacherRequests.slice(0, 4).map((request) => (
@@ -306,12 +333,12 @@ export default function AdminDashboardPage() {
               <article className="space-y-3 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-[0_4px_18px_rgba(23,48,95,0.05)] md:col-span-7">
                 <div className="flex items-center justify-between">
                   <h2 className="text-xs font-bold text-[#17305f]">Người dùng mới tham gia</h2>
-                  <a href="/admin/users" className="text-[10px] font-bold text-blue-600 hover:underline">
+                  <Link href="/admin/users" className="text-[10px] font-bold text-blue-600 hover:underline">
                     Xem tất cả →
-                  </a>
+                  </Link>
                 </div>
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[520px] text-left text-[10px]">
+                  <table className="w-full min-w-130 text-left text-[10px]">
                     <thead className="text-slate-400">
                       <tr className="border-b border-slate-100">
                         <th className="pb-2 font-medium">Người dùng</th>
@@ -322,24 +349,13 @@ export default function AdminDashboardPage() {
                     </thead>
                     <tbody>
                       {users.slice(0, 5).map((user) => {
-                        const initial = getVietnameseInitial(user.fullName);
                         const userAvatar = user.avatarUrl || user.avatar;
 
                         return (
                           <tr key={user.id} className="border-b border-slate-50 last:border-0">
                             <td className="py-2.5">
                               <div className="flex items-center gap-2">
-                                {userAvatar ? (
-                                  <img
-                                    src={userAvatar}
-                                    alt={user.fullName}
-                                    className="size-7 rounded-full object-cover ring-1 ring-slate-200 shrink-0"
-                                  />
-                                ) : (
-                                  <span className="flex size-7 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-[9px] font-extrabold text-white shrink-0 shadow-2xs">
-                                    {initial}
-                                  </span>
-                                )}
+                                <AdminUserAvatar src={userAvatar} name={user.fullName} />
                                 <span className="min-w-0">
                                   <span className="block max-w-40 truncate font-bold text-slate-700">
                                     {user.fullName}
@@ -382,9 +398,9 @@ export default function AdminDashboardPage() {
               <article className="space-y-3 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-[0_4px_18px_rgba(23,48,95,0.05)] md:col-span-5">
                 <div className="flex items-center justify-between">
                   <h2 className="text-xs font-bold text-[#17305f]">Khóa học mới nhất</h2>
-                  <a href="/admin/courses" className="text-[10px] font-bold text-blue-600 hover:underline">
+                  <Link href="/admin/courses" className="text-[10px] font-bold text-blue-600 hover:underline">
                     Xem tất cả →
-                  </a>
+                  </Link>
                 </div>
                 <div className="divide-y divide-slate-100">
                   {courses.slice(0, 5).map((course, index) => {
@@ -415,7 +431,7 @@ export default function AdminDashboardPage() {
                           />
                         ) : (
                           <span
-                            className={`flex size-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br ${
+                            className={`flex size-8 shrink-0 items-center justify-center rounded-lg bg-linear-to-br ${
                               gradientColors[index % gradientColors.length]
                             } text-white shadow-2xs`}
                           >
@@ -450,9 +466,9 @@ export default function AdminDashboardPage() {
 
             <p className="flex items-center gap-1.5 text-[9px] text-slate-400">
               <Bell size={12} /> Số liệu và danh sách trên bảng điều khiển được tải từ dữ liệu hiện có trong hệ thống.{" "}
-              <a className="inline-flex items-center text-blue-600 hover:underline" href="/admin/analytics">
+              <Link className="inline-flex items-center text-blue-600 hover:underline" href="/admin/analytics">
                 Xem báo cáo <ArrowUpRight size={11} />
-              </a>
+              </Link>
             </p>
           </>
         )}

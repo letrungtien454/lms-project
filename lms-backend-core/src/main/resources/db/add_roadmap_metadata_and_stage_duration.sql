@@ -1,0 +1,7 @@
+ALTER TABLE roadmaps
+    ADD COLUMN IF NOT EXISTS category VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS duration_weeks INTEGER,
+    ADD COLUMN IF NOT EXISTS target_audience VARCHAR(255);
+
+ALTER TABLE roadmap_stages
+    ADD COLUMN IF NOT EXISTS duration_weeks INTEGER;
